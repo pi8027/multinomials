@@ -244,7 +244,9 @@ Fixpoint phiPol (l : positive -> R) (P : Pol) : R :=
 (* https://github.com/rocq-prover/stdlib/blob/0543892eea4b4eba4b809dea353b89a08910d222/theories/setoid_ring/Ring_polynom.v#L124 *)
 Lemma PaddC_ok c P l : phiPol l (addPolC P c) = phiPol l P + phiC c.
 Proof.
-Abort.
+elim: P l=> [|| P2 IHP1 p pR IHP2] l //=.
+by rewrite IHP2 addrA.
+Qed.
 
 Lemma PmulC_aux_ok c P l : phiPol l (mulPolC_aux P c) = phiPol l P * phiC c.
 Proof.
