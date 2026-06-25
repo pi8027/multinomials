@@ -1,8 +1,9 @@
 From HB Require Import structures.
-From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat.
-From mathcomp Require Import seq path choice finset fintype finfun.
-From mathcomp Require Import tuple bigop ssralg ssrint ssrnum.
-From Corelib Require Import PosDef IntDef.
+From Stdlib Require Import BinPos BinInt.
+From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq path.
+From mathcomp Require Import choice fintype tuple finfun bigop finset.
+From mathcomp Require Import ssralg ssrnum ssrint.
+From mathcomp Require Import monalg.
 Unset SsrOldRewriteGoalsOrder.  (* remove the line when requiring MathComp >= 2.6 *)
 
 Set Implicit Arguments.
@@ -11,7 +12,7 @@ Unset Printing Implicit Defensive.
 
 Import GRing.Theory.
 
-Section Computable.
+Section Pol.
 
 (* Coefficients *)
 Context (C : Type).
@@ -21,8 +22,8 @@ Inductive Pol : Type :=
   | Pinj : positive -> Pol -> Pol
   | PX : Pol -> positive -> Pol -> Pol.
 
-Context (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C).
 Context (eqC : C -> C -> bool).
+Context (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C).
 
 Definition P0 := Pc zeroC.
 Definition P1 := Pc oneC.
@@ -38,7 +39,7 @@ Fixpoint eqPol (P P' : Pol) {struct P'} : bool :=
 Definition mkPinj j P :=
   match P with
   | Pc _ => P
-  | Pinj j' Q => Pinj (Pos.add j j') Q
+  | Pinj j' Q => Pinj (Pos.add j' j) Q
   | _ => Pinj j P
   end.
 
@@ -77,8 +78,7 @@ Fixpoint addPolC (P : Pol) (c : C) : Pol :=
   end.
 
 Section PopI.
-Variable Pop : Pol -> Pol -> Pol.
-Variable Q : Pol.
+Context (Pop : Pol -> Pol -> Pol) (Q : Pol).
 
 (** [P + Pinj j Q], assuming [Pop . Q] is [. + Q] *)
 Fixpoint addPolI (j : positive) P : Pol :=
@@ -86,7 +86,7 @@ Fixpoint addPolI (j : positive) P : Pol :=
   | Pc c => mkPinj j (addPolC Q c)
   | Pinj j' Q' =>
       match Z.pos_sub j' j with
-      | Zpos k =>  mkPinj j (Pop (Pinj k Q') Q)
+      | Zpos k => mkPinj j (Pop (Pinj k Q') Q)
       | Z0 => mkPinj j (Pop Q' Q)
       | Zneg k => mkPinj j' (addPolI k Q')
       end
@@ -106,7 +106,7 @@ Fixpoint addPolX (i' : positive) P : Pol :=
   | Pc c => PX P' i' P
   | Pinj j Q' =>
       match j with
-      | xH =>  PX P' i' Q'
+      | xH => PX P' i' Q'
       | xO j => PX P' i' (Pinj (Pos.pred_double j) Q')
       | xI j => PX P' i' (Pinj (xO j) Q')
       end
@@ -221,80 +221,118 @@ Fixpoint Ppow_pos (res P : Pol) (p : positive) : Pol :=
 
 Definition Ppow_N P n := match n with N0 => P1 | Npos p => Ppow_pos P1 P p end.
 
+(*
+Fixpoint Pol_is_norm P : bool :=
+  match P with
+  | Pc _ => true
+  | Pinj _ (Pc _) | Pinj _ (Pinj _ _) => false
+  | Pinj _ (P' as PX _ _ _) => Pol_is_norm P'
+  | PX (Pc c) _ _
+  end.
+*)
+End Pol.
+
 (* Pol to a ring *)
 
-Section phiPolSemiring.
+Section PolSemiringTheory.
 
 Local Open Scope ring_scope.
 
-Context (R : pzSemiRingType) (phiC : C -> R).
-Context (phi_zeroC : phiC zeroC = 0%R).
-Context (phi_oneC : phiC oneC = 1%R).
-Context (phi_addC : forall x y, phiC (addC x y) = phiC x + phiC y).
-Context (phi_mulC : forall x y, phiC (mulC x y) = phiC x * phiC y).
+Context (C : pzSemiRingType) (R : comPzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 
-Fixpoint phiPol (l : positive -> R) (P : Pol) : R :=
+Fixpoint phiPol (s : positive) (P : Pol C) : R :=
   match P with
   | Pc c => phiC c
-  | Pinj j Q => phiPol (fun i => l (Pos.add i j)) Q
-  | PX P i Q =>
-    phiPol l P * (l xH ^+ Pos.to_nat i) + phiPol (fun i => l (Pos.succ i)) Q
+  | Pinj i Q => phiPol (Pos.add i s) Q
+  | PX P i Q => phiPol s P * (vm s ^+ Pos.to_nat i) + phiPol (Pos.succ s) Q
   end.
 
+Notation Pol := (Pol C).
+Notation mkPinj := (@mkPinj C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation addPolC := (@addPolC C +%R).
+Notation mulPolC_aux := (@mulPolC_aux C eq_op 0 *%R).
+Notation mulPolC := (@mulPolC C eq_op 0 1 *%R).
+Notation addPolX := (@addPolX C eq_op 0).
+Notation addPol := (@addPol C eq_op 0 +%R).
+Notation mulPolI := (@mulPolI C eq_op 0 1 *%R).
+Notation mulPol := (@mulPol C eq_op 0 1 +%R *%R).
+
+Arguments Pos.add : simpl never.
+
 (* https://github.com/rocq-prover/stdlib/blob/0543892eea4b4eba4b809dea353b89a08910d222/theories/setoid_ring/Ring_polynom.v#L124 *)
-Lemma PaddC_ok c P l : phiPol l (addPolC P c) = phiPol l P + phiC c.
+Lemma mkPinj_ok j s P : phiPol s (mkPinj j P) = phiPol (Pos.add j s) P.
+Proof. by case: P => //= i P; rewrite Pos.add_assoc. Qed.
+
+Lemma mkPX_ok s P i Q :
+  phiPol s (mkPX P i Q) =
+    phiPol s P * vm s ^+ Pos.to_nat i + phiPol (Pos.succ s) Q.
 Proof.
-elim: P l=> [|| P2 IHP1 p pR IHP2] l //=.
-by rewrite IHP2 addrA.
+case: P => [c||P j [c||]]//=.
+  by have [->|//] := eqVneq; rewrite mkPinj_ok rmorph0 mul0r add0r Pos.add_1_l.
+by have [->|]//= := eqVneq; rewrite rmorph0 addr0 Pos2Nat.inj_add exprD mulrA.
 Qed.
 
-Lemma PmulC_aux_ok c P l : phiPol l (mulPolC_aux P c) = phiPol l P * phiC c.
+Lemma addPolC_ok c P s : phiPol s (addPolC P c) = phiPol s P + phiC c.
+Proof.
+elim: P s => [c'||P IHP i P' IHP'] s //=; first by rewrite rmorphD.
+by rewrite IHP' addrA.
+Qed.
+
+Lemma mulPolC_aux_ok c P s : phiPol s (mulPolC_aux P c) = phiPol s P * phiC c.
+Proof.
+elim: P s => [c'|i P IHP|P IHP i Q IHQ] s/=; first by rewrite rmorphM.
+  by rewrite mkPinj_ok IHP.
+by rewrite mkPX_ok IHP IHQ mulrDl mulrAC.
+Qed.
+
+Lemma mulPolC_ok c P s : phiPol s (mulPolC P c) = phiPol s P * phiC c.
+Proof.
+rewrite /mulPolC; have [->|_] := eqVneq; first by rewrite /= rmorph0 mulr0.
+have [->|_] := eqVneq; first by rewrite /= rmorph1 mulr1.
+by rewrite mulPolC_aux_ok.
+Qed.
+
+Lemma addPolX_ok P P' k s :
+  (forall P' s, phiPol s (addPol P' P) = phiPol s P' + phiPol s P) ->
+  phiPol s (addPolX addPol P k P') =
+    phiPol s P * vm s ^+ Pos.to_nat k + phiPol s P'.
 Proof.
 Abort.
 
-Lemma PmulC_ok c P l : phiPol l (mulPolC P c) = phiPol l P * phiC c.
+Lemma addPol_ok P' P i : phiPol i (addPol P P') = phiPol i P + phiPol i P'.
 Proof.
 Abort.
 
-Lemma PaddX_ok P' P k l :
-  (forall P l, phiPol l (addPol P P') = phiPol l P + phiPol l P') ->
-  phiPol l (addPolX addPol P' k P) =
-    phiPol l P + phiPol l P' * (l xH) ^+ Pos.to_nat k.
+Lemma mulPolI_ok P' :
+  (forall P i, phiPol i (mulPol P P') = phiPol i P * phiPol i P') ->
+  forall P p i, phiPol i (mulPolI mulPol P' p P) =
+                  phiPol i P * phiPol (Pos.succ i) P'.
 Proof.
 Abort.
 
-Lemma Padd_ok P' P l : phiPol l (addPol P P') = phiPol l P + phiPol l P'.
+Lemma mulPol_ok P P' i : phiPol i (mulPol P P') = phiPol i P * phiPol i P'.
 Proof.
 Abort.
 
-Lemma PmulI_ok P' :
-  (forall P l, phiPol l (mulPol P P') = phiPol l P * phiPol l P') ->
-  forall P p l, phiPol l (mulPolI mulPol P' p P) =
-                  phiPol l P * phiPol (fun i => l (Pos.succ i)) P'.
-Proof.
-Abort.
+End PolSemiringTheory.
 
-Lemma Pmul_ok P P' l : phiPol l (mulPol P P') = phiPol l P * phiPol l P'.
-Proof.
-Abort.
-
-End phiPolSemiring.
-
-Section phiPolRing.
+Section PolRingTheory.
 
 Local Open Scope ring_scope.
 
-Context (R : pzRingType) (phiC : C -> R).
-Context (phi_oppC : forall x, phiC (oppC x) = - phiC x).
+Context (C : pzRingType) (R : comPzRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 
-Lemma Popp_ok P l : phiPol phiC l (oppPol P) = - phiPol phiC l P.
+Notation oppPol := (@oppPol C -%R).
+
+Lemma Popp_ok P i : phiPol phiC vm i (oppPol P) = - phiPol phiC vm i P.
 Proof.
-elim: P l => [c|i p IHp|p IHp i q IHq] l /=.
-- by rewrite phi_oppC.
+elim: P i => [c|i p IHp|p IHp i q IHq] i' /=.
+- by rewrite rmorphN.
 - by rewrite IHp.
 - by rewrite IHp IHq opprD mulNr.
 Qed.
 
-End phiPolRing.
-
-End Computable.
+End PolRingTheory.
