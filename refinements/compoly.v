@@ -1,5 +1,5 @@
 From HB Require Import structures.
-From Stdlib Require Import BinPos BinInt.
+From Stdlib Require Import BinPos BinNat BinInt.
 From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq path.
 From mathcomp Require Import choice fintype tuple finfun bigop finset.
 From mathcomp Require Import ssralg ssrnum ssrint.
@@ -414,3 +414,101 @@ elim: P i => [c|i p IHp|p IHp i q IHq] i' /=.
 Qed.
 
 End EvalPolRing.
+
+Section PExpr.
+
+Local Open Scope ring_scope.
+Context (C : Type). 
+Context (R : Type).
+Context (zeroR oneR : R) (addR mulR : R -> R -> R) (oppR : R -> R).
+Context (powR : R -> N -> R).
+Context (phiC : C -> R).
+Context (vm : positive -> R).
+
+Inductive PExpr : Type :=
+ | PEO : PExpr
+ | PEI : PExpr
+ | PEc : C -> PExpr
+ | PEX : positive -> PExpr
+ | PEadd : PExpr -> PExpr -> PExpr
+ | PEsub : PExpr -> PExpr -> PExpr
+ | PEmul : PExpr -> PExpr -> PExpr
+ | PEopp : PExpr -> PExpr
+ | PEpow : PExpr -> N -> PExpr.
+
+Fixpoint PEeval (pe:PExpr) {struct pe} : R :=
+match pe with
+| PEO => zeroR
+| PEI => oneR
+| PEc c => phiC c
+| PEX j => vm j 
+| PEadd pe1 pe2 => addR (PEeval pe1) (PEeval pe2)
+| PEsub pe1 pe2 => addR (PEeval pe1) (oppR (PEeval pe2))
+| PEmul pe1 pe2 => mulR (PEeval pe1) (PEeval pe2)
+| PEopp pe1 => oppR (PEeval pe1)
+| PEpow pe1 n => powR (PEeval pe1) n
+end.
+
+End PExpr.
+
+Section Norm.
+
+Context (C : Type). 
+Context (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C).
+Context (eqC : C -> C -> bool).
+Context (powR : C -> N -> C).
+
+Let addPol := @addP C eqC zeroC addC.
+Let mulPol := @mulP C eqC zeroC oneC addC mulC.
+Let oppPol := @oppP C oppC.
+Let powPol := @Ppow_N C eqC zeroC oneC addC mulC.
+Let mk_X j := mkPinj_pred j (@mkX C zeroC oneC).
+Definition norm :=
+  @PEeval C (Pol C) (Pc zeroC) (Pc oneC) addPol mulPol oppPol powPol (@Pc C) mk_X.
+
+End Norm.
+
+Section Thm.
+Context (C : pzSemiRingType) (R : comPzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+Local Open Scope ring_scope. 
+
+Let pow (x : R) (n : N) : R := x ^+ (N.to_nat n).
+Let shift_vm l p := vm (Pos.add l p).
+Let PEeval l :=  @PEeval C R 0%R 1%R +%R *%R id pow phiC (shift_vm l).
+Let norm := @norm C 0%R 1%R +%R *%R id eq_op.
+Notation evalP := (@evalP C R phiC vm).
+
+Notation Pol := (Pol C).
+Notation mkPinj := (@mkPinj C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation addP := (@addP C eq_op 0 +%R).
+Notation oppP := (@oppP C id).
+Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
+Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
+
+(*
+Hypothesis Hpex : forall l p, shift_vm l p = phiPol l (mkPinj_pred p (mkX 0 1)). 
+Hypothesis Ppow_N_ok : forall P n l, phiPol l (Ppow_N P n) = pow (phiPol l P) n.
+*)
+
+Lemma evalNP' : forall P, (oppP P) = P. 
+Proof. 
+by elim=> [//|p P /= -> | /= P1 -> p P2 ->].
+Qed. 
+
+Lemma norm_spec l pe : PEeval l pe = evalP l (norm pe).
+Proof.
+  elim: pe=>  [| |//|p|pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2
+                  |pe1 IHpe| pe1 IHpe n0] /=.
+  - by rewrite rmorph0.
+  - by rewrite rmorph1. 
+  - admit. (* by apply Hpex. *)
+  - by rewrite IHpe1 IHpe2 evalDP.
+  - by rewrite IHpe1 IHpe2 evalDP evalNP'.
+  - by rewrite IHpe1 IHpe2 evalMP.
+  - by rewrite IHpe evalNP'.
+  - rewrite IHpe.
+  Qed.
+
+End Thm.
