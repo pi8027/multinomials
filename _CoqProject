@@ -4,6 +4,7 @@ src/mpoly.v
 src/ssrcomplements.v
 src/xfinmap.v
 refinements/compoly.v
+refinements/genproof.v
 
 -R src mathcomp.multinomials
 -arg -w -arg -ambiguous-paths

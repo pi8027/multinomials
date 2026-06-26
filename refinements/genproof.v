@@ -262,48 +262,6 @@ Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R).
 
 Arguments Pos.add : simpl never.
 
-(* https://github.com/rocq-prover/stdlib/blob/0543892eea4b4eba4b809dea353b89a08910d222/theories/setoid_ring/Ring_polynom.v#L124 *)
-(* Lemma mkPinj_ok j s P : phiPol s (mkPinj j P) = phiPol (Pos.add j s) P.
-Proof. by case: P => //= i P; rewrite Pos.add_assoc. Qed. *)
-
-(* Lemma mkPX_ok s P i Q :
-  phiPol s (mkPX P i Q) =
-    phiPol s P * vm s ^+ Pos.to_nat i + phiPol (Pos.succ s) Q.
-Proof.
-case: P => [c||P j [c||]]//=.
-  by have [->|//] := eqVneq; rewrite mkPinj_ok rmorph0 mul0r add0r Pos.add_1_l.
-by have [->|]//= := eqVneq; rewrite rmorph0 addr0 Pos2Nat.inj_add exprD mulrA.
-Qed. *)
-
-(* Lemma addPolC_ok c P s : phiPol s (addPolC P c) = phiPol s P + phiC c.
-Proof.
-elim: P s => [c'||P IHP i P' IHP'] s //=; first by rewrite rmorphD.
-by rewrite IHP' addrA.
-Qed.
-
-Lemma mulPolC_aux_ok c P s : phiPol s (mulPolC_aux P c) = phiPol s P * phiC c.
-Proof.
-elim: P s => [c'|i P IHP|P IHP i Q IHQ] s/=; first by rewrite rmorphM.
-  by rewrite mkPinj_ok IHP.
-by rewrite mkPX_ok IHP IHQ mulrDl mulrAC.
-Qed. *)
-
-(* Lemma mulPolC_ok c P s : phiPol s (mulPolC P c) = phiPol s P * phiC c.
-Proof.
-rewrite /mulPolC; have [->|_] := eqVneq; first by rewrite /= rmorph0 mulr0.
-have [->|_] := eqVneq; first by rewrite /= rmorph1 mulr1.
-by rewrite mulPolC_aux_ok.
-Qed.
-
-Lemma addPolX_ok P P' k s :
-  (forall P' s, phiPol s (addPol P' P) = phiPol s P' + phiPol s P) ->
-  phiPol s (addPolX addPol P k P') =
-    phiPol s P * vm s ^+ Pos.to_nat k + phiPol s P'.
-Proof.
-Abort. *)
-
-Hypothesis addPol_ok : forall P' P i, phiPol i (addPol P P') = phiPol i P + phiPol i P'.
-Hypothesis mulPol_ok : forall P P' i, phiPol i (mulPol P P') = phiPol i P * phiPol i P'.
 
 End PolSemiringTheory.
 
@@ -342,7 +300,6 @@ match pe with
 | PEpow pe1 n => powR (PEeval pe1) n
 end.
 End Evaluation.
-Check PEeval.
 
  Section NORM_SUBST_REC.
   Context (C : Type). 
@@ -362,12 +319,49 @@ Check PEeval.
 Context (C : pzSemiRingType) (R : comPzSemiRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 Local Open Scope ring_scope. 
+
 Let pow (x : R) (n : N) : R := x ^+ (N.to_nat n).
-Let PEeval :=  @PEeval C R 0%R 1%R +%R *%R id pow phiC vm.
+Let shift_vm l p := vm (Pos.add l p).
+Let PEeval l :=  @PEeval C R 0%R 1%R +%R *%R id pow phiC (shift_vm l).
 Let norm := @norm C 0%R 1%R +%R *%R id eq_op.
-Lemma norm_aux_spec l pe :
-    PEeval pe == phiPol phiC vm l (norm pe).
+Let phiPol := phiPol phiC vm. 
+
+Notation Pol := (Pol C).
+Notation mkPinj := (@mkPinj C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation addPolC := (@addPolC C +%R).
+Notation mulPolC_aux := (@mulPolC_aux C eq_op 0 *%R).
+Notation mulPolC := (@mulPolC C eq_op 0 1 *%R).
+Notation addPolX := (@addPolX C eq_op 0).
+Notation addPol := (@addPol C eq_op 0 +%R).
+Notation oppPol := (@oppPol C id).
+Notation mulPolI := (@mulPolI C eq_op 0 1 *%R).
+Notation mulPol := (@mulPol C eq_op 0 1 +%R *%R).
+Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
+
+Hypothesis Hpex : forall l p, shift_vm l p = phiPol l (mkPinj_pred p (mkX 0 1)). 
+Hypothesis addPol_ok : forall P' P i, phiPol i (addPol P P') = phiPol i P + phiPol i P'.
+Hypothesis mulPol_ok : forall P P' i, phiPol i (mulPol P P') = phiPol i P * phiPol i P'.
+Hypothesis Ppow_N_ok : forall P n l, phiPol l (Ppow_N P n) = pow (phiPol l P) n.
+
+Lemma Popp_ok : forall P, (oppPol P) = P. 
+Proof. 
+by elim=> [//|p P /= -> | /= P1 -> p P2 ->].
+Qed. 
+
+Lemma norm_spec l pe :
+    PEeval l pe = phiPol l (norm pe).
   Proof.
-  Admitted.
+  elim: pe=>  [| |//|p|pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2
+                  |pe1 IHpe| pe1 IHpe n0] /=.
+  - by rewrite rmorph0.
+  - by rewrite rmorph1. 
+  - by apply Hpex. 
+  - by rewrite IHpe1 IHpe2 addPol_ok. 
+  - by rewrite IHpe1 IHpe2 addPol_ok /= Popp_ok. 
+  - by rewrite IHpe1 IHpe2 mulPol_ok. 
+  - by rewrite IHpe Popp_ok. 
+  - by rewrite IHpe Ppow_N_ok. 
+  Qed.
 
 End Thm.
