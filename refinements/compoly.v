@@ -12,9 +12,26 @@ Unset Printing Implicit Defensive.
 
 Import GRing.Theory.
 
+Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
+  | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec x y Z0
+  | Z_pos_sub_Gt z : x = Pos.add y z -> Z_pos_sub_spec x y (Z.pos z)
+  | Z_pos_sub_Lt z : y = Pos.add x z -> Z_pos_sub_spec x y (Z.neg z).
+
+Lemma Z_pos_subP (x y : positive) : Z_pos_sub_spec x y (Z.pos_sub x y).
+Proof.
+case E : (Pos.compare x y); move: E.
+- by move=> /Pos.compare_eq <-; rewrite Z.pos_sub_diag; constructor.
+- move=> /Pos.compare_lt_iff /[dup] ltxy /Z.pos_sub_lt ->; constructor.
+  by rewrite Pos.add_comm Pos.sub_add.
+- move=> /Pos.compare_gt_iff /[dup] ltyx /Z.pos_sub_gt ->; constructor.
+  by rewrite Pos.add_comm Pos.sub_add.
+Qed.
+
+(*****************************)
+(* Sparse Horner polynomials *)
+(*****************************)
 Section Pol.
 
-(* Coefficients *)
 Context (C : Type).
 
 Inductive Pol : Type :=
@@ -39,7 +56,7 @@ Fixpoint eqPol (P P' : Pol) {struct P'} : bool :=
 Definition mkPinj j P :=
   match P with
   | Pc _ => P
-  | Pinj j' Q => Pinj (Pos.add j' j) Q
+  | Pinj j' Q => Pinj (Pos.add j j') Q
   | _ => Pinj j P
   end.
 
@@ -63,45 +80,45 @@ Definition mkX := mkXi 1.
 
 (** Polynomial operations *)
 
-Fixpoint oppPol (P : Pol) : Pol :=
+Fixpoint oppP (P : Pol) : Pol :=
   match P with
   | Pc c => Pc (oppC c)
-  | Pinj j Q => Pinj j (oppPol Q)
-  | PX P i Q => PX (oppPol P) i (oppPol Q)
+  | Pinj j Q => Pinj j (oppP Q)
+  | PX P i Q => PX (oppP P) i (oppP Q)
   end.
 
-Fixpoint addPolC (P : Pol) (c : C) : Pol :=
+Fixpoint addP_C (P : Pol) (c : C) : Pol :=
   match P with
   | Pc c1 => Pc (addC c1 c)
-  | Pinj j Q => Pinj j (addPolC Q c)
-  | PX P i Q => PX P i (addPolC Q c)
+  | Pinj j Q => Pinj j (addP_C Q c)
+  | PX P i Q => PX P i (addP_C Q c)
   end.
 
-Section PopI.
+Section addP.
 Context (Pop : Pol -> Pol -> Pol) (Q : Pol).
 
 (** [P + Pinj j Q], assuming [Pop . Q] is [. + Q] *)
-Fixpoint addPolI (j : positive) P : Pol :=
+Fixpoint addP_I (j : positive) P : Pol :=
   match P with
-  | Pc c => mkPinj j (addPolC Q c)
+  | Pc c => mkPinj j (addP_C Q c)
   | Pinj j' Q' =>
       match Z.pos_sub j' j with
       | Zpos k => mkPinj j (Pop (Pinj k Q') Q)
       | Z0 => mkPinj j (Pop Q' Q)
-      | Zneg k => mkPinj j' (addPolI k Q')
+      | Zneg k => mkPinj j' (addP_I k Q')
       end
   | PX P i Q' =>
       match j with
       | xH => PX P i (Pop Q' Q)
-      | xO j => PX P i (addPolI (Pos.pred_double j) Q')
-      | xI j => PX P i (addPolI (xO j) Q')
+      | xO j => PX P i (addP_I (Pos.pred_double j) Q')
+      | xI j => PX P i (addP_I (xO j) Q')
       end
   end.
 
 Variable P' : Pol.
 
 (** [P + PX P' i' P0], assuming [Pop . P'] is [. + P'] *)
-Fixpoint addPolX (i' : positive) P : Pol :=
+Fixpoint addP_X (i' : positive) P : Pol :=
   match P with
   | Pc c => PX P' i' P
   | Pinj j Q' =>
@@ -114,90 +131,90 @@ Fixpoint addPolX (i' : positive) P : Pol :=
       match Z.pos_sub i i' with
       | Zpos k => mkPX (Pop (PX P k P0) P') i' Q'
       | Z0 => mkPX (Pop P P') i Q'
-      | Zneg k => mkPX (addPolX k P) i Q'
+      | Zneg k => mkPX (addP_X k P) i Q'
       end
   end.
 
-End PopI.
+End addP.
 
-Fixpoint addPol P P' {struct P'} : Pol :=
+Fixpoint addP P P' {struct P'} : Pol :=
   match P' with
-  | Pc c' => addPolC P c'
-  | Pinj j' Q' => addPolI addPol Q' j' P
+  | Pc c' => addP_C P c'
+  | Pinj j' Q' => addP_I addP Q' j' P
   | PX P' i' Q' =>
       match P with
-      | Pc c => PX P' i' (addPolC Q' c)
+      | Pc c => PX P' i' (addP_C Q' c)
       | Pinj j Q =>
           match j with
-          | xH => PX P' i' (addPol Q Q')
-          | xO j => PX P' i' (addPol (Pinj (Pos.pred_double j) Q) Q')
-          | xI j => PX P' i' (addPol (Pinj (xO j) Q) Q')
+          | xH => PX P' i' (addP Q Q')
+          | xO j => PX P' i' (addP (Pinj (Pos.pred_double j) Q) Q')
+          | xI j => PX P' i' (addP (Pinj (xO j) Q) Q')
           end
       | PX P i Q =>
           match Z.pos_sub i i' with
-          | Zpos k => mkPX (addPol (PX P k P0) P') i' (addPol Q Q')
-          | Z0 => mkPX (addPol P P') i (addPol Q Q')
-          | Zneg k => mkPX (addPolX addPol P' k P) i (addPol Q Q')
+          | Zpos k => mkPX (addP (PX P k P0) P') i' (addP Q Q')
+          | Z0 => mkPX (addP P P') i (addP Q Q')
+          | Zneg k => mkPX (addP_X addP P' k P) i (addP Q Q')
           end
       end
   end.
 
 (** Multiplication *)
 
-Fixpoint mulPolC_aux P c : Pol :=
+Fixpoint mulP_C_aux P c : Pol :=
   match P with
   | Pc c' => Pc (mulC c' c)
-  | Pinj j Q => mkPinj j (mulPolC_aux Q c)
-  | PX P i Q => mkPX (mulPolC_aux P c) i (mulPolC_aux Q c)
+  | Pinj j Q => mkPinj j (mulP_C_aux Q c)
+  | PX P i Q => mkPX (mulP_C_aux P c) i (mulP_C_aux Q c)
   end.
 
-Definition mulPolC P c :=
+Definition mulP_C P c :=
   if eqC c zeroC then P0 else
-  if eqC c oneC then P else mulPolC_aux P c.
+  if eqC c oneC then P else mulP_C_aux P c.
 
-(** [P * Pinj j Q], assuming [mulPol . Q] is [. * Q] *)
-Section mulPolI.
-Context (mulPol : Pol -> Pol -> Pol) (Q : Pol).
+(** [P * Pinj j Q], assuming [mulP . Q] is [. * Q] *)
+Section mulP_I.
+Context (mulP : Pol -> Pol -> Pol) (Q : Pol).
 
-Fixpoint mulPolI (j : positive) P : Pol :=
+Fixpoint mulP_I (j : positive) P : Pol :=
   match P with
-  | Pc c => mkPinj j (mulPolC Q c)
+  | Pc c => mkPinj j (mulP_C Q c)
   | Pinj j' Q' =>
       match Z.pos_sub j' j with
-      | Zpos k => mkPinj j (mulPol (Pinj k Q') Q)
-      | Z0 => mkPinj j (mulPol Q' Q)
-      | Zneg k => mkPinj j' (mulPolI k Q')
+      | Zpos k => mkPinj j (mulP (Pinj k Q') Q)
+      | Z0 => mkPinj j (mulP Q' Q)
+      | Zneg k => mkPinj j' (mulP_I k Q')
       end
   | PX P' i' Q' =>
       match j with
-      | xH => mkPX (mulPolI xH P') i' (mulPol Q' Q)
-      | xO j' => mkPX (mulPolI j P') i' (mulPolI (Pos.pred_double j') Q')
-      | xI j' => mkPX (mulPolI j P') i' (mulPolI (xO j') Q')
+      | xH => mkPX (mulP_I xH P') i' (mulP Q' Q)
+      | xO j' => mkPX (mulP_I j P') i' (mulP_I (Pos.pred_double j') Q')
+      | xI j' => mkPX (mulP_I j P') i' (mulP_I (xO j') Q')
       end
    end.
-End mulPolI.
+End mulP_I.
 
-Fixpoint mulPol P P'' {struct P''} : Pol :=
+Fixpoint mulP P P'' {struct P''} : Pol :=
   match P'' with
-  | Pc c => mulPolC P c
-  | Pinj j' Q' => mulPolI mulPol Q' j' P
+  | Pc c => mulP_C P c
+  | Pinj j' Q' => mulP_I mulP Q' j' P
   | PX P' i' Q' =>
       match P with
-      | Pc c => mulPolC P'' c
+      | Pc c => mulP_C P'' c
       | Pinj j Q =>
           let QQ' :=
             match j with
-            | xH => mulPol Q Q'
-            | xO j => mulPol (Pinj (Pos.pred_double j) Q) Q'
-            | xI j => mulPol (Pinj (xO j) Q) Q'
+            | xH => mulP Q Q'
+            | xO j => mulP (Pinj (Pos.pred_double j) Q) Q'
+            | xI j => mulP (Pinj (xO j) Q) Q'
             end in
-          mkPX (mulPol P P') i' QQ'
+          mkPX (mulP P P') i' QQ'
       | PX P i Q =>
-          let QQ' := mulPol Q Q' in
-          let PQ' := mulPolI mulPol Q' xH P in
-          let QP' := mulPol (mkPinj xH Q) P' in
-          let PP' := mulPol P P' in
-          addPol (mkPX (addPol (mkPX PP' i P0) QP') i' P0) (mkPX PQ' i QQ')
+          let QQ' := mulP Q Q' in
+          let PQ' := mulP_I mulP Q' xH P in
+          let QP' := mulP (mkPinj xH Q) P' in
+          let PP' := mulP P P' in
+          addP (mkPX (addP (mkPX PP' i P0) QP') i' P0) (mkPX PQ' i QQ')
       end
   end.
 
@@ -206,17 +223,17 @@ Fixpoint Psquare P : Pol :=
   | Pc c => Pc (mulC c c)
   | Pinj j Q => Pinj j (Psquare Q)
   | PX P i Q =>
-      let twoPQ := mulPol P (mkPinj xH (mulPolC Q (addC oneC oneC))) in
+      let twoPQ := mulP P (mkPinj xH (mulP_C Q (addC oneC oneC))) in
       let Q2 := Psquare Q in
       let P2 := Psquare P in
-      mkPX (addPol (mkPX P2 i P0) twoPQ) i Q2
+      mkPX (addP (mkPX P2 i P0) twoPQ) i Q2
   end.
 
 Fixpoint Ppow_pos (res P : Pol) (p : positive) : Pol :=
   match p with
-  | xH => mulPol res P
+  | xH => mulP res P
   | xO p => Ppow_pos (Ppow_pos res P p) P p
-  | xI p => mulPol (Ppow_pos (Ppow_pos res P p) P p) P
+  | xI p => mulP (Ppow_pos (Ppow_pos res P p) P p) P
   end.
 
 Definition Ppow_N P n := match n with N0 => P1 | Npos p => Ppow_pos P1 P p end.
@@ -232,102 +249,163 @@ Fixpoint Pol_is_norm P : bool :=
 *)
 End Pol.
 
-(* Pol to a ring *)
-
-Section PolSemiringTheory.
+(*********************)
+(* Evaluation of Pol *)
+(*********************)
+Section EvalPolSemiring.
 
 Local Open Scope ring_scope.
 
 Context (C : pzSemiRingType) (R : comPzSemiRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 
-Fixpoint phiPol (s : positive) (P : Pol C) : R :=
+Fixpoint evalP (s : positive) (P : Pol C) : R :=
   match P with
   | Pc c => phiC c
-  | Pinj i Q => phiPol (Pos.add i s) Q
-  | PX P i Q => phiPol s P * (vm s ^+ Pos.to_nat i) + phiPol (Pos.succ s) Q
+  | Pinj i Q => evalP (Pos.add i s) Q
+  | PX P i Q => evalP s P * (vm s ^+ Pos.to_nat i) + evalP (Pos.succ s) Q
   end.
 
 Notation Pol := (Pol C).
 Notation mkPinj := (@mkPinj C).
 Notation mkPX := (@mkPX C eq_op 0).
-Notation addPolC := (@addPolC C +%R).
-Notation mulPolC_aux := (@mulPolC_aux C eq_op 0 *%R).
-Notation mulPolC := (@mulPolC C eq_op 0 1 *%R).
-Notation addPolX := (@addPolX C eq_op 0).
-Notation addPol := (@addPol C eq_op 0 +%R).
-Notation mulPolI := (@mulPolI C eq_op 0 1 *%R).
-Notation mulPol := (@mulPol C eq_op 0 1 +%R *%R).
+Notation addP_C := (@addP_C C +%R).
+Notation addP_X := (@addP_X C eq_op 0).
+Notation addP_I := (@addP_I C +%R).
+Notation addP := (@addP C eq_op 0 +%R).
+Notation mulP_C_aux := (@mulP_C_aux C eq_op 0 *%R).
+Notation mulP_C := (@mulP_C C eq_op 0 1 *%R).
+Notation mulP_I := (@mulP_I C eq_op 0 1 *%R).
+Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
 
 Arguments Pos.add : simpl never.
 
-(* https://github.com/rocq-prover/stdlib/blob/0543892eea4b4eba4b809dea353b89a08910d222/theories/setoid_ring/Ring_polynom.v#L124 *)
-Lemma mkPinj_ok j s P : phiPol s (mkPinj j P) = phiPol (Pos.add j s) P.
-Proof. by case: P => //= i P; rewrite Pos.add_assoc. Qed.
+Lemma eval_mkPinj j s P : evalP s (mkPinj j P) = evalP (Pos.add j s) P.
+Proof. by case: P => //= i P; rewrite Pos.add_assoc (Pos.add_comm i). Qed.
 
-Lemma mkPX_ok s P i Q :
-  phiPol s (mkPX P i Q) =
-    phiPol s P * vm s ^+ Pos.to_nat i + phiPol (Pos.succ s) Q.
+Lemma eval_mkPX s P i Q :
+  evalP s (mkPX P i Q) =
+    evalP s P * vm s ^+ Pos.to_nat i + evalP (Pos.succ s) Q.
 Proof.
 case: P => [c||P j [c||]]//=.
-  by have [->|//] := eqVneq; rewrite mkPinj_ok rmorph0 mul0r add0r Pos.add_1_l.
+  have [->|//] := eqVneq.
+  by rewrite eval_mkPinj rmorph0 mul0r add0r Pos.add_1_l.
 by have [->|]//= := eqVneq; rewrite rmorph0 addr0 Pos2Nat.inj_add exprD mulrA.
 Qed.
 
-Lemma addPolC_ok c P s : phiPol s (addPolC P c) = phiPol s P + phiC c.
+(* Addition *)
+Lemma evalDPC s c P : evalP s (addP_C P c) = evalP s P + phiC c.
 Proof.
 elim: P s => [c'||P IHP i P' IHP'] s //=; first by rewrite rmorphD.
 by rewrite IHP' addrA.
 Qed.
 
-Lemma mulPolC_aux_ok c P s : phiPol s (mulPolC_aux P c) = phiPol s P * phiC c.
+Lemma evalDPX s P Q i :
+  (forall s P, evalP s (addP P Q) = evalP s P + evalP s Q) ->
+  evalP s (addP_X addP Q i P) = evalP s Q * vm s ^+ Pos.to_nat i + evalP s P.
+Proof.
+move=> IHQ; elim: P i => [|[j|j|] P IHP|P IHP j P' IHP'] i //=.
+- by rewrite Pos.add_succ_r -Pos.add_succ_l.
+- by rewrite Pos.add_succ_r -Pos.add_succ_l Pos.succ_pred_double.
+- by rewrite Pos.add_1_l.
+have [->|{}j->|{}i->] := Z_pos_subP.
+- by rewrite eval_mkPX IHQ/= addrA -mulrDl [evalP s P + _]addrC.
+- rewrite eval_mkPX IHQ/= rmorph0 addr0 addrA [_ + evalP s Q]addrC.
+  by rewrite mulrDl -mulrA -exprD addnC Pos2Nat.inj_add.
+by rewrite eval_mkPX IHP addrA mulrDl -mulrA -exprD addnC Pos2Nat.inj_add.
+Qed.
+
+Lemma evalDPI s P Q i :
+  (forall s P, evalP s (addP P Q) = evalP s P + evalP s Q) ->
+  evalP s (addP_I addP Q i P) = evalP s P + evalP s (Pinj i Q).
+Proof.
+move=> IHQ; elim: P i s => [c|j P IHP|P IHP j P' IHP'] i s/=.
+- by rewrite eval_mkPinj evalDPC addrC.
+- have [->|{}j->|{}i->] := Z_pos_subP.
+  + by rewrite eval_mkPinj IHQ.
+  + by rewrite eval_mkPinj IHQ/= Pos.add_assoc (Pos.add_comm j).
+  by rewrite eval_mkPinj IHP/= Pos.add_assoc (Pos.add_comm i).
+case: i => [i|i|]/=.
+- by rewrite IHP'/= addrA Pos.add_succ_r -Pos.add_succ_l.
+- by rewrite IHP'/= addrA Pos.add_succ_r -Pos.add_succ_l Pos.succ_pred_double.
+by rewrite IHQ addrA Pos.add_1_l.
+Qed.
+
+Lemma evalDP s P Q : evalP s (addP P Q) = evalP s P + evalP s Q.
+Proof.
+elim: Q P s => [c P|i Q IHQ P|Q IHQ i Q' IHQ' [c|[j|j|] P|P j P']] s/=.
+- by rewrite evalDPC.
+- by rewrite evalDPI.
+- by rewrite evalDPC [RHS]addrC addrA.
+- by rewrite IHQ' addrCA/= Pos.add_succ_r -Pos.add_succ_l.
+- by rewrite IHQ' addrCA/= Pos.add_succ_r -Pos.add_succ_l Pos.succ_pred_double.
+- by rewrite IHQ' addrCA Pos.add_1_l.
+have [->|{}j->|{}i->] := Z_pos_subP.
+- by rewrite eval_mkPX IHQ IHQ' addrACA -mulrDl.
+- rewrite eval_mkPX IHQ IHQ'/= rmorph0 addr0 addrACA.
+  by rewrite Pos.add_comm Pos2Nat.inj_add exprD mulrA -mulrDl.
+rewrite eval_mkPX evalDPX// IHQ' addrACA [_ + evalP s P]addrC.
+by rewrite Pos.add_comm Pos2Nat.inj_add exprD mulrA -mulrDl.
+Qed.
+
+(* Multiplication *)
+Lemma evalMPC' s c P : evalP s (mulP_C_aux P c) = evalP s P * phiC c.
 Proof.
 elim: P s => [c'|i P IHP|P IHP i Q IHQ] s/=; first by rewrite rmorphM.
-  by rewrite mkPinj_ok IHP.
-by rewrite mkPX_ok IHP IHQ mulrDl mulrAC.
+  by rewrite eval_mkPinj IHP.
+by rewrite eval_mkPX IHP IHQ mulrDl mulrAC.
 Qed.
 
-Lemma mulPolC_ok c P s : phiPol s (mulPolC P c) = phiPol s P * phiC c.
+Lemma evalMPC s c P : evalP s (mulP_C P c) = evalP s P * phiC c.
 Proof.
-rewrite /mulPolC; have [->|_] := eqVneq; first by rewrite /= rmorph0 mulr0.
+rewrite /mulP_C; have [->|_] := eqVneq; first by rewrite /= rmorph0 mulr0.
 have [->|_] := eqVneq; first by rewrite /= rmorph1 mulr1.
-by rewrite mulPolC_aux_ok.
+by rewrite evalMPC'.
 Qed.
 
-Lemma addPolX_ok P P' k s :
-  (forall P' s, phiPol s (addPol P' P) = phiPol s P' + phiPol s P) ->
-  phiPol s (addPolX addPol P k P') =
-    phiPol s P * vm s ^+ Pos.to_nat k + phiPol s P'.
+Lemma evalMPI s P Q i :
+  (forall s P, evalP s (mulP P Q) = evalP s P * evalP s Q) ->
+  evalP s (mulP_I mulP Q i P) = evalP s P * evalP s (Pinj i Q).
 Proof.
-Abort.
+move=> IHQ; elim: P i s => [c i s|j P IHP i s|P IHP j P' IHP' [i|i|] s]/=.
+- by rewrite eval_mkPinj evalMPC mulrC.
+- have [->|{}j->|{}i->] := Z_pos_subP.
+  + by rewrite eval_mkPinj IHQ.
+  + by rewrite eval_mkPinj IHQ/= Pos.add_assoc (Pos.add_comm j).
+  by rewrite eval_mkPinj IHP/= Pos.add_assoc (Pos.add_comm i).
+- by rewrite eval_mkPX IHP IHP'/= mulrAC Pos.add_succ_r -Pos.add_succ_l -mulrDl.
+- rewrite eval_mkPX IHP IHP'/= Pos.add_succ_r -Pos.add_succ_l.
+  by rewrite Pos.succ_pred_double mulrAC -mulrDl.
+- by rewrite eval_mkPX IHP IHQ/= Pos.add_1_l mulrAC -mulrDl.
+Qed.
 
-Lemma addPol_ok P' P i : phiPol i (addPol P P') = phiPol i P + phiPol i P'.
+Lemma evalMP s P Q : evalP s (mulP P Q) = evalP s P * evalP s Q.
 Proof.
-Abort.
+elim: Q P s => [c P|i Q IHQ P|Q IHQ i Q' IHQ' [c|[j|j|] P|P j P']] s/=.
+- by rewrite evalMPC.
+- by rewrite evalMPI.
+- by rewrite evalMPC mulrC.
+- by rewrite eval_mkPX IHQ IHQ'/= Pos.add_succ_r -Pos.add_succ_l -mulrA -mulrDr.
+- rewrite eval_mkPX IHQ IHQ'/= Pos.add_succ_r -Pos.add_succ_l.
+  by rewrite Pos.succ_pred_double -mulrA -mulrDr.
+- by rewrite eval_mkPX IHQ IHQ'/= Pos.add_1_l -mulrA -mulrDr.
+rewrite !(evalDP, eval_mkPX) !IHQ IHQ' evalMPI// eval_mkPinj/= rmorph0 !addr0.
+rewrite Pos.add_1_l mulrDl mulrAC addrACA -mulrDl -!mulrA -!mulrDr mulrAC.
+by rewrite -mulrDl.
+Qed.
 
-Lemma mulPolI_ok P' :
-  (forall P i, phiPol i (mulPol P P') = phiPol i P * phiPol i P') ->
-  forall P p i, phiPol i (mulPolI mulPol P' p P) =
-                  phiPol i P * phiPol (Pos.succ i) P'.
-Proof.
-Abort.
+End EvalPolSemiring.
 
-Lemma mulPol_ok P P' i : phiPol i (mulPol P P') = phiPol i P * phiPol i P'.
-Proof.
-Abort.
-
-End PolSemiringTheory.
-
-Section PolRingTheory.
+Section EvalPolRing.
 
 Local Open Scope ring_scope.
 
 Context (C : pzRingType) (R : comPzRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 
-Notation oppPol := (@oppPol C -%R).
+Notation oppP := (@oppP C -%R).
 
-Lemma Popp_ok P i : phiPol phiC vm i (oppPol P) = - phiPol phiC vm i P.
+Lemma evalNP P i : evalP phiC vm i (oppP P) = - evalP phiC vm i P.
 Proof.
 elim: P i => [c|i p IHp|p IHp i q IHq] i' /=.
 - by rewrite rmorphN.
@@ -335,4 +413,4 @@ elim: P i => [c|i p IHp|p IHp i q IHq] i' /=.
 - by rewrite IHp IHq opprD mulNr.
 Qed.
 
-End PolRingTheory.
+End EvalPolRing.
