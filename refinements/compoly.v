@@ -1,3 +1,4 @@
+From elpi.apps Require Import derive.std.
 From HB Require Import structures.
 From Stdlib Require Import BinPos BinNat BinInt.
 From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq path.
@@ -12,10 +13,19 @@ Unset Printing Implicit Defensive.
 
 Import GRing.Theory.
 
+Elpi derive.param2 positive.
+Elpi derive.param2 N.
+
+Lemma positive_RP (x y : positive) : positive_R x y -> x = y.
+Proof. by elim => // ? ? _ ->. Qed.
+
+Lemma N_RP (n m : N) : N_R n m -> n = m.
+Proof. by case => // ? ? /positive_RP ->. Qed.
+
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
-  | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec x y Z0
-  | Z_pos_sub_Gt z : x = Pos.add y z -> Z_pos_sub_spec x y (Z.pos z)
-  | Z_pos_sub_Lt z : y = Pos.add x z -> Z_pos_sub_spec x y (Z.neg z).
+  | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
+  | Z_pos_sub_Gt z : x = Pos.add y z -> Z_pos_sub_spec (Z.pos z)
+  | Z_pos_sub_Lt z : y = Pos.add x z -> Z_pos_sub_spec (Z.neg z).
 
 Lemma Z_pos_subP (x y : positive) : Z_pos_sub_spec x y (Z.pos_sub x y).
 Proof.
@@ -277,11 +287,21 @@ Notation mulP_C_aux := (@mulP_C_aux C eq_op 0 *%R).
 Notation mulP_C := (@mulP_C C eq_op 0 1 *%R).
 Notation mulP_I := (@mulP_I C eq_op 0 1 *%R).
 Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
+Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
 
 Arguments Pos.add : simpl never.
 
 Lemma eval_mkPinj j s P : evalP s (mkPinj j P) = evalP (Pos.add j s) P.
 Proof. by case: P => //= i P; rewrite Pos.add_assoc (Pos.add_comm i). Qed.
+
+Lemma eval_mkPinj_pred j s P :
+  evalP s (mkPinj_pred j P) = evalP (Pos.pred (Pos.add j s)) P.
+Proof.
+case: j => [j|j|]/=.
+- by rewrite Pos.xI_succ_xO Pos.add_succ_l Pos.pred_succ.
+- by rewrite -Pos.succ_pred_double Pos.add_succ_l Pos.pred_succ.
+by rewrite Pos.add_1_l Pos.pred_succ.
+Qed.
 
 Lemma eval_mkPX s P i Q :
   evalP s (mkPX P i Q) =
@@ -394,6 +414,10 @@ rewrite Pos.add_1_l mulrDl mulrAC addrACA -mulrDl -!mulrA -!mulrDr mulrAC.
 by rewrite -mulrDl.
 Qed.
 
+Lemma evalXPN s P n : evalP s (Ppow_N P n) = evalP s P ^+ N.to_nat n.
+Proof.
+Admitted.
+
 End EvalPolSemiring.
 
 Section EvalPolRing.
@@ -418,7 +442,7 @@ End EvalPolRing.
 Section PExpr.
 
 Local Open Scope ring_scope.
-Context (C : Type). 
+Context (C : Type).
 Context (R : Type).
 Context (zeroR oneR : R) (addR mulR : R -> R -> R) (oppR : R -> R).
 Context (powR : R -> N -> R).
@@ -436,12 +460,12 @@ Inductive PExpr : Type :=
  | PEopp : PExpr -> PExpr
  | PEpow : PExpr -> N -> PExpr.
 
-Fixpoint PEeval (pe:PExpr) {struct pe} : R :=
+Fixpoint PEeval (pe : PExpr) {struct pe} : R :=
 match pe with
 | PEO => zeroR
 | PEI => oneR
 | PEc c => phiC c
-| PEX j => vm j 
+| PEX j => vm j
 | PEadd pe1 pe2 => addR (PEeval pe1) (PEeval pe2)
 | PEsub pe1 pe2 => addR (PEeval pe1) (oppR (PEeval pe2))
 | PEmul pe1 pe2 => mulR (PEeval pe1) (PEeval pe2)
@@ -451,9 +475,12 @@ end.
 
 End PExpr.
 
+Elpi derive.param2 PExpr.
+Elpi derive.param2 PEeval.
+
 Section Norm.
 
-Context (C : Type). 
+Context (C : Type).
 Context (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C).
 Context (eqC : C -> C -> bool).
 Context (powR : C -> N -> C).
@@ -471,10 +498,10 @@ End Norm.
 Section Thm.
 Context (C : pzSemiRingType) (R : comPzSemiRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
-Local Open Scope ring_scope. 
+Local Open Scope ring_scope.
 
 Let pow (x : R) (n : N) : R := x ^+ (N.to_nat n).
-Let shift_vm l p := vm (Pos.add l p).
+Let shift_vm l p := vm (Pos.pred (Pos.add l p)).
 Let PEeval l :=  @PEeval C R 0%R 1%R +%R *%R id pow phiC (shift_vm l).
 Let norm := @norm C 0%R 1%R +%R *%R id eq_op.
 Notation evalP := (@evalP C R phiC vm).
@@ -487,28 +514,64 @@ Notation oppP := (@oppP C id).
 Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
 Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
 
-(*
-Hypothesis Hpex : forall l p, shift_vm l p = phiPol l (mkPinj_pred p (mkX 0 1)). 
-Hypothesis Ppow_N_ok : forall P n l, phiPol l (Ppow_N P n) = pow (phiPol l P) n.
-*)
-
-Lemma evalNP' : forall P, (oppP P) = P. 
-Proof. 
-by elim=> [//|p P /= -> | /= P1 -> p P2 ->].
-Qed. 
-
-Lemma norm_spec l pe : PEeval l pe = evalP l (norm pe).
+Lemma evalNP' : forall P, (oppP P) = P.
 Proof.
-  elim: pe=>  [| |//|p|pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2| pe1 IHpe1 pe2 IHpe2
-                  |pe1 IHpe| pe1 IHpe n0] /=.
-  - by rewrite rmorph0.
-  - by rewrite rmorph1. 
-  - admit. (* by apply Hpex. *)
-  - by rewrite IHpe1 IHpe2 evalDP.
-  - by rewrite IHpe1 IHpe2 evalDP evalNP'.
-  - by rewrite IHpe1 IHpe2 evalMP.
-  - by rewrite IHpe evalNP'.
-  - rewrite IHpe.
-  Qed.
+by elim=> [//|p P /= -> | /= P1 -> p P2 ->].
+Qed.
+
+Lemma norm_spec_semiring l pe : PEeval l pe = evalP l (norm pe).
+Proof.
+apply (@PEeval_R C C eq _ _ (fun x p => x = evalP l p)) => /=.
+- by rewrite rmorph0.
+- by rewrite rmorph1.
+- by move=> _ P -> _ Q ->; rewrite evalDP.
+- by move=> _ P -> _ Q ->; rewrite evalMP.
+- by move=> _ P ->; rewrite evalNP'.
+- by move=> _ ? -> _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move => _ i /positive_RP->.
+  by rewrite eval_mkPinj_pred /= rmorph1 mul1r expr1 rmorph0 addr0 Pos.add_comm.
+elim: pe; constructor=> //.
+by elim: p; constructor.
+by case: n; constructor; elim: p0; constructor.
+Qed.
+
+End Thm.
+
+Section Thm.
+Context (C : pzRingType) (R : comPzRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+Local Open Scope ring_scope.
+
+Let pow (x : R) (n : N) : R := x ^+ (N.to_nat n).
+Let shift_vm l p := vm (Pos.pred (Pos.add l p)).
+Let PEeval l :=  @PEeval C R 0%R 1%R +%R *%R -%R pow phiC (shift_vm l).
+Let norm := @norm C 0%R 1%R +%R *%R -%R eq_op.
+Notation evalP := (@evalP C R phiC vm).
+
+Notation Pol := (Pol C).
+Notation mkPinj := (@mkPinj C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation addP := (@addP C eq_op 0 +%R).
+Notation oppP := (@oppP C id).
+Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
+Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
+
+Lemma norm_spec_ring l pe : PEeval l pe = evalP l (norm pe).
+Proof.
+apply (@PEeval_R C C eq _ _ (fun x p => x = evalP l p)) => /=.
+- by rewrite rmorph0.
+- by rewrite rmorph1.
+- by move=> _ P -> _ Q ->; rewrite evalDP.
+- by move=> _ P -> _ Q ->; rewrite evalMP.
+- by move=> _ P ->; rewrite evalNP.
+- by move=> _ ? -> _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move => _ i /positive_RP->.
+  by rewrite eval_mkPinj_pred /= rmorph1 mul1r expr1 rmorph0 addr0 Pos.add_comm.
+elim: pe; constructor=> //.
+by elim: p; constructor.
+by case: n; constructor; elim: p0; constructor.
+Qed.
 
 End Thm.
