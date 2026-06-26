@@ -287,6 +287,7 @@ Notation mulP_C_aux := (@mulP_C_aux C eq_op 0 *%R).
 Notation mulP_C := (@mulP_C C eq_op 0 1 *%R).
 Notation mulP_I := (@mulP_I C eq_op 0 1 *%R).
 Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
+Notation Ppow_pos := (@Ppow_pos C eq_op 0 1 +%R *%R).
 Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
 
 Arguments Pos.add : simpl never.
@@ -414,9 +415,19 @@ rewrite Pos.add_1_l mulrDl mulrAC addrACA -mulrDl -!mulrA -!mulrDr mulrAC.
 by rewrite -mulrDl.
 Qed.
 
+Lemma evalXPp s res P p :
+  evalP s (Ppow_pos res P p) = evalP s res * evalP s P ^+ Pos.to_nat p.
+Proof.
+elim: p res => [p IHp|p IHp|] res /=; last by rewrite evalMP.
+  by rewrite evalMP 2!IHp Pos2Nat.inj_xI exprSr 2!exprD mulr1 !mulrA.
+by rewrite 2!IHp Pos2Nat.inj_xO 2!exprD mulr1 !mulrA.
+Qed.
+
 Lemma evalXPN s P n : evalP s (Ppow_N P n) = evalP s P ^+ N.to_nat n.
 Proof.
-Admitted.
+case: n => [|p]/=; first by rewrite rmorph1.
+by rewrite evalXPp/= rmorph1 mul1r.
+Qed.
 
 End EvalPolSemiring.
 
