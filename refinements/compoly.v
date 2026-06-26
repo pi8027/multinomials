@@ -22,6 +22,12 @@ Proof. by elim => // ? ? _ ->. Qed.
 Lemma N_RP (n m : N) : N_R n m -> n = m.
 Proof. by case => // ? ? /positive_RP ->. Qed.
 
+Lemma positive_Rrefl (x : positive) : positive_R x x.
+Proof. by elim: x; constructor. Qed.
+
+Lemma N_Rrefl (n : N) : N_R n n.
+Proof. by case: n; constructor; apply: positive_Rrefl. Qed.
+
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
   | Z_pos_sub_Gt z : x = Pos.add y z -> Z_pos_sub_spec (Z.pos z)
@@ -489,6 +495,14 @@ End PExpr.
 Elpi derive.param2 PExpr.
 Elpi derive.param2 PEeval.
 
+Lemma PExpr_R_fl (A : Type) (AR : A -> A -> Type) (AR_refl : forall a, AR a a) pe : 
+  PExpr_R AR pe pe.
+Proof.
+elim: pe; constructor=> //.
+by elim: p; constructor.
+by apply: N_Rrefl.
+Qed.
+
 Section Norm.
 
 Context (C : Type).
@@ -507,6 +521,49 @@ Definition norm :=
 End Norm.
 
 Section Thm.
+Context (C : pzSemiRingType) (R : comPzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+Local Open Scope ring_scope.
+Context (oppR : R -> R).
+Context (oppC : C -> C).
+
+Let pow (x : R) (n : N) : R := x ^+ (N.to_nat n).
+Let shift_vm l p := vm (Pos.pred (Pos.add l p)).
+Let PEeval l :=  @PEeval C R 0%R 1%R +%R *%R oppR pow phiC (shift_vm l).
+Let norm := @norm C 0%R 1%R +%R *%R oppC eq_op.
+Notation evalP := (@evalP C R phiC vm).
+
+Notation Pol := (Pol C).
+Notation mkPinj := (@mkPinj C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation addP := (@addP C eq_op 0 +%R).
+Notation oppP := (@oppP C oppC).
+Notation mulP := (@mulP C eq_op 0 1 +%R *%R).
+Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
+
+Hypothesis evalNP' : forall P s, 
+  evalP  s (oppP P) = oppR (evalP s P). 
+
+Lemma norm_spec_abstract l pe : PEeval l pe = evalP l (norm pe).
+Proof.
+apply (@PEeval_R C C eq _ _ (fun x p => x = evalP l p)) => /=.
+- by rewrite rmorph0.
+- by rewrite rmorph1.
+- by move=> _ P -> _ Q ->; rewrite evalDP.
+- by move=> _ P -> _ Q ->; rewrite evalMP.
+- by move=> _ P ->; rewrite evalNP'.
+- by move=> _ ? -> _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move => _ i /positive_RP->.
+  by rewrite eval_mkPinj_pred /= rmorph1 mul1r expr1 rmorph0 addr0 Pos.add_comm.
+elim: pe; constructor=> //.
+by elim: p; constructor.
+by case: n; constructor; elim: p0; constructor.
+Qed.
+
+End Thm.
+
+Section Semiring.
 Context (C : pzSemiRingType) (R : comPzSemiRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 Local Open Scope ring_scope.
@@ -532,24 +589,12 @@ Qed.
 
 Lemma norm_spec_semiring l pe : PEeval l pe = evalP l (norm pe).
 Proof.
-apply (@PEeval_R C C eq _ _ (fun x p => x = evalP l p)) => /=.
-- by rewrite rmorph0.
-- by rewrite rmorph1.
-- by move=> _ P -> _ Q ->; rewrite evalDP.
-- by move=> _ P -> _ Q ->; rewrite evalMP.
-- by move=> _ P ->; rewrite evalNP'.
-- by move=> _ ? -> _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move => _ i /positive_RP->.
-  by rewrite eval_mkPinj_pred /= rmorph1 mul1r expr1 rmorph0 addr0 Pos.add_comm.
-elim: pe; constructor=> //.
-by elim: p; constructor.
-by case: n; constructor; elim: p0; constructor.
+  apply norm_spec_abstract.
+  by move=> P s; rewrite evalNP'.
 Qed.
+End Semiring.
 
-End Thm.
-
-Section Thm.
+Section Ring.
 Context (C : pzRingType) (R : comPzRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 Local Open Scope ring_scope.
@@ -570,19 +615,8 @@ Notation Ppow_N := (@Ppow_N C eq_op 0 1 +%R *%R).
 
 Lemma norm_spec_ring l pe : PEeval l pe = evalP l (norm pe).
 Proof.
-apply (@PEeval_R C C eq _ _ (fun x p => x = evalP l p)) => /=.
-- by rewrite rmorph0.
-- by rewrite rmorph1.
-- by move=> _ P -> _ Q ->; rewrite evalDP.
-- by move=> _ P -> _ Q ->; rewrite evalMP.
-- by move=> _ P ->; rewrite evalNP.
-- by move=> _ ? -> _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move => _ i /positive_RP->.
-  by rewrite eval_mkPinj_pred /= rmorph1 mul1r expr1 rmorph0 addr0 Pos.add_comm.
-elim: pe; constructor=> //.
-by elim: p; constructor.
-by case: n; constructor; elim: p0; constructor.
+  apply norm_spec_abstract.
+  by move=> P s; rewrite evalNP.
 Qed.
 
-End Thm.
+End Ring.
