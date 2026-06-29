@@ -1,7 +1,7 @@
 From elpi.apps Require Import derive.std.
 From HB Require Import structures.
 From Stdlib Require Import BinPos BinNat BinInt.
-From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat choice.
+From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq choice.
 From mathcomp Require Import rings_modules_and_algebras.
 Unset SsrOldRewriteGoalsOrder.  (* remove the line when requiring MathComp >= 2.6 *)
 
@@ -553,3 +553,129 @@ Proof. by apply: eval_normP_aring => P s; rewrite evalNP. Qed.
 End NormRing.
 
 End CPol.
+
+(******************************************************************************)
+(* Computation-oriented representation of (non-commutative) polynomials       *)
+(******************************************************************************)
+
+Fixpoint decomp_monom (m1 m2 : seq positive) :
+  seq positive * seq positive * seq positive :=
+  match m1, m2 with
+  | [::], _ => ([::], [::], m2)
+  | _, [::] => ([::], [::], [::])
+  | i :: m1', j :: m2' =>
+    if Pos.eqb i j then
+      let: (pre, m1'', m2'') := decomp_monom m1' m2' in (i :: pre, m1'', m2'')
+    else
+      ([::], m1, m2)
+  end.
+
+Definition cmp_monom : list positive -> list positive -> comparison :=
+  ListDef.list_compare Pos.compare.
+
+Module NCPol.
+
+derive Inductive t (C : Type) : Type :=
+  | Pc : C -> t
+  | PX : seq positive -> t -> t -> t. (* [PX m P Q] represents [m * P + Q] *)
+
+(* On normal forms:                                                           *)
+(* - [m] in [PX m P Q] must be non-empty.                                     *)
+(* - [PX m1 (PX m2 P P0) Q] can be normalised to [PX (m1 ++ m2) P Q].         *)
+(* - For any [PX m1 P1 (PX m2 P2 P3)], the head of [m1] must be smaller than  *)
+(*   the head of [m2].                                                        *)
+
+Section Def.
+Context (C : Type).
+Context (eqC : C -> C -> bool).
+Context (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C).
+
+Notation t := (t C).
+Notation t_eqb := (t_eqb eqC).
+
+Implicit Types (P Q : t).
+
+(* Polynomial operations *)
+
+Definition P0 := Pc zeroC.
+Definition P1 := Pc oneC.
+
+Definition mkXi i : t := PX [:: i] P1 P0.
+
+Definition mkPX (m : seq positive) P Q :=
+  match P with
+  | PX m' P' (Pc c) => if eqC c zeroC then PX (m ++ m') P' Q else PX m P Q
+  | _ => PX m P Q
+  end.
+
+(* Opposite *)
+Fixpoint oppP P : t :=
+  match P with
+  | Pc c => Pc (oppC c)
+  | PX m P Q => PX m (oppP P) (oppP Q)
+  end.
+
+Fixpoint addP_C P (c : C) : t :=
+  match P with
+  | Pc c1 => Pc (addC c1 c)
+  | PX m P Q => PX m P (addP_C Q c)
+  end.
+
+(* Addition *)
+Section addP.
+Context (addP : t -> t -> t) (P : t).
+
+(* PX mp P P0 + Q *)
+Fixpoint addP_X mp Q : t :=
+  match Q with
+  | Pc c => PX mp P (Pc c)
+  | PX mq Ql Qr =>
+    match decomp_monom mp mq with
+    | ([::], _, _) =>
+      if cmp_monom mp mq is Lt then
+        PX mp P Q
+      else
+        PX mq Ql (addP_X mp Qr)
+    | (_, [::], [::]) => mkPX mp (addP P Ql) Qr
+    | (_, [::], mq') => mkPX mp (addP P (PX mq' Ql P0)) Qr
+    | (_, mp', [::]) => mkPX mq (addP_X mp' Ql) Qr
+    | (pre, mp, mq) =>
+      if cmp_monom mp mq is Lt then
+        PX pre (PX mp P (PX mq Ql P0)) Qr
+      else
+        PX pre (PX mq Ql (PX mp P P0)) Qr
+    end
+  end.
+
+End addP.
+
+Fixpoint addP P Q {struct P} : t :=
+  match P with
+  | Pc c => addP_C Q c
+  | PX mp Pl Pr =>
+    let fix addP' Q {struct Q} :=
+      match Q with
+      | Pc c => addP_C P c
+      | PX mq Ql Qr =>
+        match decomp_monom mp mq with
+        | ([::], _, _) =>
+          if cmp_monom mp mq is Lt then
+            PX mp Pl (addP Pr Q)
+          else
+            PX mq Ql (addP' Qr)
+        | (_, [::], [::]) => mkPX mp (addP Pl Pr) (addP Pr Qr)
+        | (_, [::], mq') => mkPX mp (addP Pl (PX mq' Ql P0)) (addP Pr Qr)
+        | (_, mp', [::]) => mkPX mq (addP_X addP Pl mp' Ql) (addP Pr Qr)
+        | (pre, mp, mq) =>
+          if cmp_monom mp mq is Lt then
+            PX pre (PX mp Pl (PX mq Ql P0)) (addP Pr Qr)
+          else
+            PX pre (PX mq Ql (PX mp Pl P0)) (addP Pr Qr)
+        end
+      end
+    in addP' Q
+  end.
+
+End Def.
+
+End NCPol.
