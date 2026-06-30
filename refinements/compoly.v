@@ -286,9 +286,9 @@ Definition powPN P n := match n with N0 => P1 | Npos p => powPpos P1 P p end.
 
 End Def.
 
-(*******************)
-(* Evaluation of t *)
-(*******************)
+(************************)
+(* Evaluation of CPol.t *)
+(************************)
 Section EvalSemiRing.
 Context (C : pzSemiRingType) (R : comPzSemiRingType).
 Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
@@ -297,11 +297,11 @@ Notation t := (t C).
 Notation mkPinj := (@mkPinj C).
 Notation mkPX := (@mkPX C eq_op 0).
 Notation mkXi := (@mkXi C 0 1).
+Notation oppP :=  (@oppP C id).
 Notation addP_C := (@addP_C C +%R).
 Notation addP_X := (@addP_X C eq_op 0).
 Notation addP_I := (@addP_I C +%R).
 Notation addP := (@addP C eq_op 0 +%R).
-Notation oppP :=  (@oppP C id).
 Notation mulP_C_aux := (@mulP_C_aux C eq_op 0 *%R).
 Notation mulP_C := (@mulP_C C eq_op 0 1 *%R).
 Notation mulP_I := (@mulP_I C eq_op 0 1 *%R).
@@ -399,7 +399,7 @@ Lemma evalNPid s P : evalP s (oppP P) = evalP s P.
 Proof. by elim: P s => //= P IHP i Q IHQ s; rewrite IHP IHQ. Qed.
 
 (* Multiplication *)
-Lemma evalMPC' s c P : evalP s (mulP_C_aux P c) = evalP s P * phiC c.
+Lemma evalMPC_aux s c P : evalP s (mulP_C_aux P c) = evalP s P * phiC c.
 Proof.
 elim: P s => [c'|i P IHP|P IHP i Q IHQ] s/=; first by rewrite rmorphM.
   by rewrite eval_mkPinj IHP.
@@ -410,7 +410,7 @@ Lemma evalMPC s c P : evalP s (mulP_C P c) = evalP s P * phiC c.
 Proof.
 rewrite /mulP_C; have [->|_] := eqVneq; first by rewrite /= rmorph0 mulr0.
 have [->|_] := eqVneq; first by rewrite /= rmorph1 mulr1.
-by rewrite evalMPC'.
+by rewrite evalMPC_aux.
 Qed.
 
 Lemma evalMPI s P Q i :
@@ -466,9 +466,9 @@ Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
 
 Notation oppP := (@oppP C -%R).
 
-Lemma evalNP P i : evalP phiC vm i (oppP P) = - evalP phiC vm i P.
+Lemma evalNP s P : evalP phiC vm s (oppP P) = - evalP phiC vm s P.
 Proof.
-elim: P i => [c|i p IHp|p IHp i q IHq] i' /=.
+elim: P s => [c|i p IHp|p IHp i q IHq] s /=.
 - by rewrite rmorphN.
 - by rewrite IHp.
 by rewrite IHp IHq opprD mulNr.
@@ -558,22 +558,9 @@ End CPol.
 (* Computation-oriented representation of (non-commutative) polynomials       *)
 (******************************************************************************)
 
-Fixpoint decomp_monom (m1 m2 : seq positive) :
-  seq positive * seq positive * seq positive :=
-  match m1, m2 with
-  | [::], _ => ([::], [::], m2)
-  | _, [::] => ([::], [::], [::])
-  | i :: m1', j :: m2' =>
-    if Pos.eqb i j then
-      let: (pre, m1'', m2'') := decomp_monom m1' m2' in (i :: pre, m1'', m2'')
-    else
-      ([::], m1, m2)
-  end.
-
-Definition cmp_monom : list positive -> list positive -> comparison :=
-  ListDef.list_compare Pos.compare.
-
 Module NCPol.
+
+Implicit Types (pre m : seq positive).
 
 derive Inductive t (C : Type) : Type :=
   | Pc : C -> t
@@ -584,6 +571,37 @@ derive Inductive t (C : Type) : Type :=
 (* - [PX m1 (PX m2 P P0) Q] can be normalised to [PX (m1 ++ m2) P Q].         *)
 (* - For any [PX m1 P1 (PX m2 P2 P3)], the head of [m1] must be smaller than  *)
 (*   the head of [m2].                                                        *)
+
+(* comparison of two monomials [m1] and [m2] of type [seq positive] *)
+Variant comparison_monom : Set :=
+  (* m1 = m2 *)
+  | EqMonom : comparison_monom
+  (* m1 = m2 ++ m, i.e., m1 is divisible by m2 *)
+  | DvdlMonom m : comparison_monom
+  (* m1 ++ m = m2, i.e., m2 is divisible by m1 *)
+  | DvdrMonom m : comparison_monom
+  (* m1 = pre ++ m1', m2 = pre ++ m2', and m1' < m2' *)
+  | LtMonom pre m1' m2' : comparison_monom
+  (* m1 = pre ++ m1', m2 = pre ++ m2', and m1' > m2' *)
+  | GtMonom pre m1' m2' : comparison_monom.
+
+Fixpoint compare_monom m1 m2 : comparison_monom :=
+  match m1, m2 with
+  | [::], [::] => EqMonom
+  | _, [::] => DvdlMonom m1
+  | [::], _ => DvdrMonom m2
+  | i :: m1', j :: m2' =>
+    match Pos.compare i j with
+    | Lt => LtMonom [::] m1 m2
+    | Gt => GtMonom [::] m1 m2
+    | Eq =>
+      match compare_monom m1' m2' with
+      | LtMonom p m1'' m2'' => LtMonom (i :: p) m1'' m2''
+      | GtMonom p m1'' m2'' => GtMonom (i :: p) m1'' m2''
+      | r => r
+      end
+    end
+  end.
 
 Section Def.
 Context (C : Type).
@@ -602,7 +620,7 @@ Definition P1 := Pc oneC.
 
 Definition mkXi i : t := PX [:: i] P1 P0.
 
-Definition mkPX (m : seq positive) P Q :=
+Definition mkPX m P Q :=
   match P with
   | PX m' P' (Pc c) => if eqC c zeroC then PX (m ++ m') P' Q else PX m P Q
   | _ => PX m P Q
@@ -630,20 +648,14 @@ Fixpoint addP_X mp Q : t :=
   match Q with
   | Pc c => PX mp P (Pc c)
   | PX mq Ql Qr =>
-    match decomp_monom mp mq with
-    | ([::], _, _) =>
-      if cmp_monom mp mq is Lt then
-        PX mp P Q
-      else
-        PX mq Ql (addP_X mp Qr)
-    | (_, [::], [::]) => mkPX mp (addP P Ql) Qr
-    | (_, [::], mq') => mkPX mp (addP P (PX mq' Ql P0)) Qr
-    | (_, mp', [::]) => mkPX mq (addP_X mp' Ql) Qr
-    | (pre, mp, mq) =>
-      if cmp_monom mp mq is Lt then
-        PX pre (PX mp P (PX mq Ql P0)) Qr
-      else
-        PX pre (PX mq Ql (PX mp P P0)) Qr
+    match compare_monom mp mq with
+    | EqMonom => mkPX mp (addP P Ql) Qr
+    | DvdlMonom mp' => mkPX mq (addP_X mp' Ql) Qr
+    | DvdrMonom mq' => mkPX mp (addP P (PX mq' Ql P0)) Qr
+    | LtMonom [::] _ _ => PX mp P Q
+    | GtMonom [::] _ _ => PX mq Ql (addP_X mp Qr)
+    | LtMonom pre mp mq => PX pre (PX mp P (PX mq Ql P0)) Qr
+    | GtMonom pre mp mq => PX pre (PX mq Ql (PX mp P P0)) Qr
     end
   end.
 
@@ -657,25 +669,145 @@ Fixpoint addP P Q {struct P} : t :=
       match Q with
       | Pc c => addP_C P c
       | PX mq Ql Qr =>
-        match decomp_monom mp mq with
-        | ([::], _, _) =>
-          if cmp_monom mp mq is Lt then
-            PX mp Pl (addP Pr Q)
-          else
-            PX mq Ql (addP' Qr)
-        | (_, [::], [::]) => mkPX mp (addP Pl Pr) (addP Pr Qr)
-        | (_, [::], mq') => mkPX mp (addP Pl (PX mq' Ql P0)) (addP Pr Qr)
-        | (_, mp', [::]) => mkPX mq (addP_X addP Pl mp' Ql) (addP Pr Qr)
-        | (pre, mp, mq) =>
-          if cmp_monom mp mq is Lt then
-            PX pre (PX mp Pl (PX mq Ql P0)) (addP Pr Qr)
-          else
-            PX pre (PX mq Ql (PX mp Pl P0)) (addP Pr Qr)
+        match compare_monom mp mq with
+        | EqMonom => mkPX mp (addP Pl Pr) (addP Pr Qr)
+        | DvdlMonom mp' => mkPX mq (addP_X addP Pl mp' Ql) (addP Pr Qr)
+        | DvdrMonom mq' => mkPX mp (addP Pl (PX mq' Ql P0)) (addP Pr Qr)
+        | LtMonom [::] _ _ => PX mp Pl (addP Pr Q)
+        | GtMonom [::] _ _ => PX mq Ql (addP' Qr)
+        | LtMonom pre mp mq => PX pre (PX mp Pl (PX mq Ql P0)) (addP Pr Qr)
+        | GtMonom pre mp mq => PX pre (PX mq Ql (PX mp Pl P0)) (addP Pr Qr)
         end
       end
     in addP' Q
   end.
 
+(* Multiplication *)
+Fixpoint mulP_C_aux P c : t :=
+  match P with
+  | Pc c' => Pc (mulC c' c)
+  | PX m Pl Pr => mkPX m (mulP_C_aux Pl c) (mulP_C_aux Pr c)
+  end.
+
+Definition mulP_C P c : t :=
+  if eqC c zeroC then Pc zeroC else
+    if eqC c oneC then P else
+      mulP_C_aux P c.
+
+Fixpoint mulP P Q {struct Q} : t :=
+  match Q with
+  | Pc c => mulP_C P c
+  | PX m Ql Qr => mkPX m (mulP P Ql) (mulP P Qr)
+  end.
+
+Fixpoint powPpos (res P : t) (p : positive) : t :=
+  match p with
+  | xH => mulP res P
+  | xO p => powPpos (powPpos res P p) P p
+  | xI p => mulP (powPpos (powPpos res P p) P p) P
+  end.
+
+Definition powPN P n := match n with N0 => P1 | Npos p => powPpos P1 P p end.
+
 End Def.
+
+(*************************)
+(* Evaluation of NCPol.t *)
+(*************************)
+Section EvalSemiRing.
+Context (C R : pzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+
+Notation t := (t C).
+Notation mkPX := (@mkPX C eq_op 0).
+Notation mkXi := (@mkXi C 0 1).
+Notation oppP :=  (@oppP C id).
+Notation addP_C := (@addP_C C +%R).
+Notation addP_X := (@addP_X C eq_op 0).
+Notation addP := (@addP C eq_op 0 +%R).
+Notation mulP_C_aux := (@mulP_C_aux C eq_op 0 *%R).
+Notation mulP_C := (@mulP_C C eq_op 0 1 *%R).
+Notation mulP := (@mulP C eq_op 0 1 *%R).
+Notation powPpos := (@powPpos C eq_op 0 1 *%R).
+Notation powPN := (@powPN C eq_op 0 1 *%R).
+
+Fixpoint evalP (P : t) : R :=
+  match P with
+  | Pc c => phiC c
+  | PX m P Q => foldr (fun i k => vm i * k) 0 m * evalP P + evalP Q
+  end.
+
+Lemma eval_mkPX m P Q :
+  evalP (mkPX m P Q) = foldr (fun i k => vm i * k) 0 m * evalP P + evalP Q.
+Proof.
+Admitted.
+
+Lemma eval_mkXi i : evalP (mkXi i) = vm i.
+Proof.
+Admitted.
+
+(* Addition *)
+Lemma evalDPC c P : evalP (addP_C P c) = evalP P + phiC c.
+Proof.
+Admitted.
+
+Lemma evalDPX P Q m :
+  (forall P, evalP (addP P Q) = evalP P + evalP Q) ->
+  evalP (addP_X addP Q m P) =
+    foldr (fun i k => vm i * k) 0 m * evalP Q + evalP P.
+Proof.
+Admitted.
+
+Lemma evalDP P Q : evalP (addP P Q) = evalP P + evalP Q.
+Proof.
+Admitted.
+
+Lemma evalNPid P : evalP (oppP P) = evalP P.
+Proof.
+Admitted.
+
+(* Multiplication *)
+Lemma evalMPC_aux c P : evalP (mulP_C_aux P c) = evalP P * phiC c.
+Proof.
+Admitted.
+
+Lemma evalMPC c P : evalP (mulP_C P c) = evalP P * phiC c.
+Proof.
+Admitted.
+
+Lemma evalMP P Q : evalP (mulP P Q) = evalP P * evalP Q.
+Proof.
+Admitted.
+
+Lemma evalXPp res P p :
+  evalP (powPpos res P p) = evalP res * evalP P ^+ Pos.to_nat p.
+Proof.
+Admitted.
+
+Lemma evalXPN P n : evalP (powPN P n) = evalP P ^+ N.to_nat n.
+Proof.
+Admitted.
+
+End EvalSemiRing.
+
+Section EvalRing.
+Context (C : pzRingType) (R : pzRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+
+Notation oppP := (@oppP C -%R).
+
+Lemma evalNP P : evalP phiC vm (oppP P) = - evalP phiC vm P.
+Proof.
+Admitted.
+
+End EvalRing.
+
+(* Normalization function from PExpr to t *)
+Definition norm C (eqC : C -> C -> bool)
+  (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C) :=
+  evalPE
+    (Pc zeroC) (Pc oneC)
+    (addP eqC zeroC addC) (mulP eqC zeroC oneC addC) (oppP oppC)
+    (powPN eqC zeroC oneC addC) (@Pc C) (mkXi zeroC oneC).
 
 End NCPol.
