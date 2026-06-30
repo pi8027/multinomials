@@ -8,6 +8,7 @@ Unset SsrOldRewriteGoalsOrder.  (* remove the line when requiring MathComp >= 2.
 Set Implicit Arguments.
 Unset Strict Implicit.
 Unset Printing Implicit Defensive.
+Set Uniform Inductive Parameters.
 
 Local Open Scope ring_scope.
 
@@ -791,10 +792,12 @@ Qed.
 Lemma eval_mkXi i : evalP (mkXi i) = vm i.
 Proof. by rewrite /= big_cons big_nil rmorph1 rmorph0 !mulr1 addr0. Qed.
 
+Lemma Pid_id P : (oppP P) = P.
+Proof. by elim: P=> [//|/= l P1 -> P2 ->]. Qed.
+
 (* Opposite *)
 Lemma evalNPid P : evalP (oppP P) = evalP P.
-Proof.
-Admitted.
+Proof. by rewrite Pid_id. Qed.
 
 (* Addition *)
 Lemma evalDPC c P : evalP (addP_C P c) = evalP P + CtoR c.
@@ -865,9 +868,17 @@ Context (CtoR : {rmorphism C -> R}) (vm : positive -> R).
 
 Notation oppP := (@oppP C -%R).
 
+Lemma oppND (x y: R) : - (x + y) = - x - y.
+Proof.
+by rewrite -mulrN1 mulrDl !mulrN1.
+Qed.
+
 Lemma evalNP P : evalP CtoR vm (oppP P) = - evalP CtoR vm P.
 Proof.
-Admitted.
+elim: P=> [/= c| /= l P1 IH1 P2 IH2].
+by rewrite rmorphN.
+by rewrite /= IH1 IH2 mulrN oppND. 
+Qed.
 
 End EvalRing.
 
