@@ -2,7 +2,7 @@ From elpi.apps Require Import derive.std.
 From HB Require Import structures.
 From Stdlib Require Import BinPos BinNat BinInt.
 From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq choice.
-From mathcomp Require Import rings_modules_and_algebras.
+From mathcomp Require Import bigop rings_modules_and_algebras.
 Unset SsrOldRewriteGoalsOrder.  (* remove the line when requiring MathComp >= 2.6 *)
 
 Set Implicit Arguments.
@@ -340,6 +340,10 @@ Qed.
 Lemma eval_mkXi s i : evalP s (mkXi i) = vm (Pos.pred (i + s)).
 Proof. by rewrite eval_mkPinj_pred/= rmorph1 mul1r rmorph0 addr0. Qed.
 
+(* Opposite *)
+Lemma evalNPid s P : evalP s (oppP P) = evalP s P.
+Proof. by elim: P s => //= P IHP i Q IHQ s; rewrite IHP IHQ. Qed.
+
 (* Addition *)
 Lemma evalDPC s c P : evalP s (addP_C P c) = evalP s P + phiC c.
 Proof.
@@ -394,9 +398,6 @@ have [->|{}j->|{}i->] := Z_pos_subP.
 rewrite eval_mkPX evalDPX// IHQ' addrACA [_ + evalP s P]addrC.
 by rewrite Pos.add_comm Pos2Nat.inj_add exprD mulrA -mulrDl.
 Qed.
-
-Lemma evalNPid s P : evalP s (oppP P) = evalP s P.
-Proof. by elim: P s => //= P IHP i Q IHQ s; rewrite IHP IHQ. Qed.
 
 (* Multiplication *)
 Lemma evalMPC_aux s c P : evalP s (mulP_C_aux P c) = evalP s P * phiC c.
@@ -603,6 +604,34 @@ Fixpoint compare_monom m1 m2 : comparison_monom :=
     end
   end.
 
+Variant compare_monom_spec :
+  seq positive -> seq positive -> comparison_monom -> Set :=
+  | EqMonom' m : compare_monom_spec m m EqMonom
+  | DvdlMonom' m1 m2 : compare_monom_spec (m2 ++ m1) m2 (DvdlMonom m1)
+  | DvdrMonom' m1 m2 : compare_monom_spec m1 (m1 ++ m2) (DvdrMonom m2)
+  | LtMonom' pre i m1' j m2' :
+    Pos.lt i j ->
+    compare_monom_spec (pre ++ i :: m1') (pre ++ j :: m2')
+      (LtMonom pre (i :: m1') (j :: m2'))
+  | GtMonom' pre i m1' j m2' :
+    Pos.lt j i ->
+    compare_monom_spec (pre ++ i :: m1') (pre ++ j :: m2')
+      (GtMonom pre (i :: m1') (j :: m2')).
+
+Lemma compare_monomP m1 m2 : compare_monom_spec m1 m2 (compare_monom m1 m2).
+Proof.
+elim: m1 m2 => [|i m1 IH] [|j m2]//=; first by constructor.
+- by rewrite -[j :: m2]cat0s; constructor.
+- by rewrite -[i :: m1]cat0s; constructor.
+case Eij: Pos.compare; first last.
+- rewrite -[i :: _]cat0s -[j :: _]cat0s; constructor.
+  exact/Pos.compare_gt_iff.
+- rewrite -[i :: _]cat0s -[j :: _]cat0s; constructor.
+  exact/Pos.compare_lt_iff.
+rewrite -(Pos.compare_eq _ _ Eij).
+by case: IH => *; rewrite -?cat_cons; constructor.
+Qed.
+
 Section Def.
 Context (C : Type).
 Context (eqC : C -> C -> bool).
@@ -670,7 +699,7 @@ Fixpoint addP P Q {struct P} : t :=
       | Pc c => addP_C P c
       | PX mq Ql Qr =>
         match compare_monom mp mq with
-        | EqMonom => mkPX mp (addP Pl Pr) (addP Pr Qr)
+        | EqMonom => mkPX mp (addP Pl Ql) (addP Pr Qr)
         | DvdlMonom mp' => mkPX mq (addP_X addP Pl mp' Ql) (addP Pr Qr)
         | DvdrMonom mq' => mkPX mp (addP Pl (PX mq' Ql P0)) (addP Pr Qr)
         | LtMonom [::] _ _ => PX mp Pl (addP Pr Q)
@@ -734,37 +763,62 @@ Notation powPN := (@powPN C eq_op 0 1 *%R).
 Fixpoint evalP (P : t) : R :=
   match P with
   | Pc c => phiC c
-  | PX m P Q => foldr (fun i k => vm i * k) 0 m * evalP P + evalP Q
+  | PX m P Q => (\prod_(i <- m) vm i) * evalP P + evalP Q
   end.
 
 Lemma eval_mkPX m P Q :
-  evalP (mkPX m P Q) = foldr (fun i k => vm i * k) 0 m * evalP P + evalP Q.
+  evalP (mkPX m P Q) = (\prod_(i <- m) vm i) * evalP P + evalP Q.
 Proof.
-Admitted.
+case: P => [c|m' P [c'|m'' P' P'']]//=.
+by have [->|]//= := eqVneq; rewrite rmorph0 addr0 mulrA -big_cat.
+Qed.
 
 Lemma eval_mkXi i : evalP (mkXi i) = vm i.
+Proof. by rewrite /= big_cons big_nil rmorph1 rmorph0 !mulr1 addr0. Qed.
+
+(* Opposite *)
+Lemma evalNPid P : evalP (oppP P) = evalP P.
 Proof.
 Admitted.
 
 (* Addition *)
 Lemma evalDPC c P : evalP (addP_C P c) = evalP P + phiC c.
 Proof.
-Admitted.
+elim: P => [c'|m Pl _ Pr IHPr]/=; first by rewrite rmorphD.
+by rewrite IHPr addrA.
+Qed.
 
-Lemma evalDPX P Q m :
-  (forall P, evalP (addP P Q) = evalP P + evalP Q) ->
-  evalP (addP_X addP Q m P) =
-    foldr (fun i k => vm i * k) 0 m * evalP Q + evalP P.
+Lemma evalDPX P m Q :
+  (forall Q, evalP (addP P Q) = evalP P + evalP Q) ->
+  evalP (addP_X addP P m Q) = (\prod_(i <- m) vm i) * evalP P + evalP Q.
 Proof.
-Admitted.
+move=> IHP; elim: Q m => //= mq Ql IHQl Qr IHQr mp; case: compare_monomP.
+- by move=> {mp mq}m; rewrite eval_mkPX IHP mulrDr addrA.
+- by move=> {}mp {}mq; rewrite eval_mkPX IHQl big_cat/= mulrDr mulrA addrA.
+- move=> {}mp {}mq.
+  by rewrite eval_mkPX IHP/= rmorph0 addr0 big_cat/= mulrDr mulrA addrA.
+- move=> [|i pre] j {}mp k {}mq _ //.
+  by rewrite 2!big_cat/= rmorph0 addr0 mulrDr !mulrA addrA.
+move=> [|i pre] j {}mp k {}mq _; first by rewrite /= IHQr addrCA.
+by rewrite 2!big_cat/= rmorph0 addr0 mulrDr !mulrA addrCA addrA.
+Qed.
 
 Lemma evalDP P Q : evalP (addP P Q) = evalP P + evalP Q.
 Proof.
-Admitted.
-
-Lemma evalNPid P : evalP (oppP P) = evalP P.
-Proof.
-Admitted.
+elim: P Q => [c|mp Pl IHPl Pr IHPr] Q/=; first by rewrite evalDPC addrC.
+elim: Q mp => [c'|mq Ql IHQl Qr IHQr] mp/=; first by rewrite evalDPC addrA.
+case: compare_monomP.
+- by move=> {mp mq}m; rewrite eval_mkPX IHPl IHPr mulrDr addrACA.
+- move=> {}mp {}mq.
+  by rewrite eval_mkPX evalDPX// IHPr big_cat/= mulrDr !mulrA addrACA.
+- move=> {}mp {}mq; rewrite eval_mkPX IHPl IHPr/=.
+  by rewrite big_cat/= rmorph0 addr0 mulrDr !mulrA addrACA.
+- move=> [|i pre] j {}mp k {}mq _; first by rewrite /= IHPr/= !addrA.
+  by rewrite !big_cat/= rmorph0 addr0 IHPr mulrDr !mulrA addrACA.
+move=> [|i pre] j {}mp k {}mq _; first by rewrite /= IHQr addrCA.
+rewrite !big_cat/= rmorph0 addr0 IHPr mulrDr !mulrA [RHS]addrACA.
+by congr +%R; rewrite addrC.
+Qed.
 
 (* Multiplication *)
 Lemma evalMPC_aux c P : evalP (mulP_C_aux P c) = evalP P * phiC c.
@@ -807,7 +861,62 @@ Definition norm C (eqC : C -> C -> bool)
   (zeroC oneC : C) (addC mulC : C -> C -> C) (oppC : C -> C) :=
   evalPE
     (Pc zeroC) (Pc oneC)
-    (addP eqC zeroC addC) (mulP eqC zeroC oneC addC) (oppP oppC)
-    (powPN eqC zeroC oneC addC) (@Pc C) (mkXi zeroC oneC).
+    (addP eqC zeroC addC) (mulP eqC zeroC oneC mulC) (oppP oppC)
+    (powPN eqC zeroC oneC mulC) (@Pc C) (mkXi zeroC oneC).
+
+Section NormAlmostRing.
+Context (C R : pzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+Context (oppR : R -> R) (oppC : C -> C).
+
+Let evalPE := @evalPE C R 0 1 +%R *%R oppR (fun x n => x ^+ N.to_nat n) phiC vm.
+Let norm := @norm C eq_op 0 1 +%R *%R oppC.
+Notation evalP := (@evalP C R phiC vm).
+Notation oppP := (@oppP C oppC).
+
+Hypothesis evalNP' : forall P, evalP (oppP P) = oppR (evalP P).
+
+Lemma eval_normP_aring pe : evalP (norm pe) = evalPE pe.
+Proof.
+apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP p = x)) => /=.
+- by rewrite rmorph0.
+- by rewrite rmorph1.
+- by move=> _ P <- _ Q <-; rewrite evalDP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ P <-; rewrite evalNP'.
+- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move=> ? i /positive_RP->.
+  by rewrite big_cons big_nil rmorph1 rmorph0 !mulr1 addr0.
+exact/PExpr_R_refl.
+Qed.
+
+End NormAlmostRing.
+
+Section NormSemiRing.
+Context (C R : pzSemiRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+
+Let evalPE := @evalPE C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) phiC vm.
+Let norm := @norm C eq_op 0 1 +%R *%R id.
+Notation evalP := (@evalP C R phiC vm).
+
+Lemma eval_normP_semiring pe : evalP (norm pe) = evalPE pe.
+Proof. by apply: eval_normP_aring => P; rewrite evalNPid. Qed.
+
+End NormSemiRing.
+
+Section NormRing.
+Context (C R : comPzRingType).
+Context (phiC : {rmorphism C -> R}) (vm : positive -> R).
+
+Let evalPE := @evalPE C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) phiC vm.
+Let norm := @norm C eq_op 0 1 +%R *%R -%R.
+Notation evalP := (@evalP C R phiC vm).
+
+Lemma eval_normP_ring pe : evalP (norm pe) = evalPE pe.
+Proof. by apply: eval_normP_aring => P; rewrite evalNP. Qed.
+
+End NormRing.
 
 End NCPol.
