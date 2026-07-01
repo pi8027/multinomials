@@ -740,21 +740,21 @@ Fixpoint addP P Q {struct P} : t :=
   end.
 
 (* Multiplication *)
-Fixpoint mulP_C_aux P c : t :=
+Fixpoint mulCP_aux c P : t :=
   match P with
-  | Pc c' => Pc (mulC c' c)
-  | PX m Pl Pr => mkPX m (mulP_C_aux Pl c) (mulP_C_aux Pr c)
+  | Pc c' => Pc (mulC c c')
+  | PX m Pl Pr => mkPX m (mulCP_aux c Pl) (mulCP_aux c Pr)
   end.
 
-Definition mulP_C P c : t :=
+Definition mulCP c P : t :=
   if eqC c zeroC then Pc zeroC else
     if eqC c oneC then P else
-      mulP_C_aux P c.
+      mulCP_aux c P.
 
-Fixpoint mulP P Q {struct Q} : t :=
-  match Q with
-  | Pc c => mulP_C P c
-  | PX m Ql Qr => mkPX m (mulP P Ql) (mulP P Qr)
+Fixpoint mulP P Q {struct P} : t :=
+  match P with
+  | Pc c => mulCP c Q
+  | PX m Pl Pr => mkPX m (mulP Pl Q) (mulP Pr Q)
   end.
 
 Fixpoint powPpos (res P : t) (p : positive) : t :=
@@ -780,6 +780,7 @@ Context (CtoR_0 : CtoR zeroC = 0).
 Context (CtoR_1 : CtoR oneC = 1).
 Context (CtoR_D : {morph CtoR : x y / addC x y >-> x + y}).
 Context (CtoR_M : {morph CtoR : x y / mulC x y >-> x * y}).
+Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 
 Notation t := (t C).
 Notation mkPX := (@mkPX C eqC zeroC).
@@ -788,8 +789,8 @@ Notation oppP := (@oppP C id).
 Notation addP_C := (@addP_C C addC).
 Notation addP_X := (@addP_X C eqC zeroC).
 Notation addP := (@addP C eqC zeroC addC).
-Notation mulP_C_aux := (@mulP_C_aux C eqC zeroC mulC).
-Notation mulP_C := (@mulP_C C eqC zeroC oneC mulC).
+Notation mulCP_aux := (@mulCP_aux C eqC zeroC mulC).
+Notation mulCP := (@mulCP C eqC zeroC oneC mulC).
 Notation mulP := (@mulP C eqC zeroC oneC mulC).
 Notation powPpos := (@powPpos C eqC zeroC oneC mulC).
 Notation powPN := (@powPN C eqC zeroC oneC mulC).
@@ -859,26 +860,37 @@ by congr +%R; rewrite addrC.
 Qed.
 
 (* Multiplication *)
-Lemma evalMPC_aux c P : evalP (mulP_C_aux P c) = evalP P * CtoR c.
+Lemma evalMCP_aux c P : evalP (mulCP_aux c P) = CtoR c * evalP P.
 Proof.
-Admitted.
+elim: P => [c'|m P IHP Q IHQ]/=; first by rewrite CtoR_M.
+by rewrite eval_mkPX IHP IHQ mulrDr !mulrA CtoR_comm.
+Qed.
 
-Lemma evalMPC c P : evalP (mulP_C P c) = evalP P * CtoR c.
+Lemma evalMCP c P : evalP (mulCP c P) = CtoR c * evalP P.
 Proof.
-Admitted.
+rewrite /mulCP; have [/eqCP->|_] := ifP; first by rewrite /=CtoR_0 mul0r.
+by have [/eqCP->|_] := ifP; [rewrite CtoR_1 mul1r | rewrite evalMCP_aux].
+Qed.
 
 Lemma evalMP P Q : evalP (mulP P Q) = evalP P * evalP Q.
 Proof.
-Admitted.
+elim: P => [c|mp Pl IHPl Pr IHPr]/=; first by rewrite evalMCP.
+by rewrite eval_mkPX IHPl IHPr mulrDl mulrA.
+Qed.
 
 Lemma evalXPp res P p :
   evalP (powPpos res P p) = evalP res * evalP P ^+ Pos.to_nat p.
 Proof.
-Admitted.
+elim: p res => [p IHp|p IHp|] res /=; last by rewrite evalMP.
+  by rewrite evalMP 2!IHp Pos2Nat.inj_xI exprSr 2!exprD mulr1 !mulrA.
+by rewrite 2!IHp Pos2Nat.inj_xO 2!exprD mulr1 !mulrA.
+Qed.
 
 Lemma evalXPN P n : evalP (powPN P n) = evalP P ^+ N.to_nat n.
 Proof.
-Admitted.
+case: n => [|p]/=; first by rewrite CtoR_1.
+by rewrite evalXPp/= CtoR_1 mul1r.
+Qed.
 
 End EvalSemiRing.
 
@@ -909,6 +921,7 @@ Definition norm C (eqC : C -> C -> bool)
 Section NormAlmostRing.
 Context (C R : pzSemiRingType) (CtoR : {rmorphism C -> R}) (vm : positive -> R).
 Context (oppR : R -> R) (oppC : C -> C).
+Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 
 Let eqCP (x y : C) : x == y -> x = y. Proof. exact/eqP. Qed.
 Let CtoR_0 : CtoR 0 = 0 := rmorph0 CtoR.
@@ -925,37 +938,37 @@ Hypothesis evalNP' : forall P, evalP (oppP P) = oppR (evalP P).
 
 Lemma eval_normP_aring pe : evalP (norm pe) = evalPE pe.
 Proof.
-(*
 apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP p = x)) => /=.
 - by rewrite rmorph0.
 - by rewrite rmorph1.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
-- move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
 - by move=> _ P <-; rewrite evalNP'.
 - by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
 - by move=> _ ? ->.
 - move=> ? i /positive_RP->.
   by rewrite big_cons big_nil rmorph1 rmorph0 !mulr1 addr0.
 exact/PExpr_R_refl.
-*)
-Admitted.
+Qed.
 
 End NormAlmostRing.
 
 Section NormSemiRing.
 Context (C R : pzSemiRingType) (CtoR : {rmorphism C -> R}) (vm : positive -> R).
+Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 
 Let evalPE := @evalPE C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm.
 Let norm := @norm C eq_op 0 1 +%R *%R id.
 Notation evalP := (@evalP C R CtoR vm).
 
 Lemma eval_normP_semiring pe : evalP (norm pe) = evalPE pe.
-Proof. by apply: eval_normP_aring => P; rewrite evalNPid. Qed.
+Proof. by apply: eval_normP_aring => //P; rewrite evalNPid. Qed.
 
 End NormSemiRing.
 
 Section NormRing.
 Context (C R : pzRingType) (CtoR : {rmorphism C -> R}) (vm : positive -> R).
+Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 
 Let CtoR_N : {morph CtoR : x / - x >-> - x} := rmorphN CtoR.
 
@@ -964,7 +977,7 @@ Let norm := @norm C eq_op 0 1 +%R *%R -%R.
 Notation evalP := (@evalP C R CtoR vm).
 
 Lemma eval_normP_ring pe : evalP (norm pe) = evalPE pe.
-Proof. by apply: eval_normP_aring => P; rewrite evalNP. Qed.
+Proof. by apply: eval_normP_aring => //P; rewrite evalNP. Qed.
 
 End NormRing.
 
@@ -981,6 +994,12 @@ Context (cvm ncvm : positive -> R).
 Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 Context (cvm_comm : forall x i, GRing.comm x (cvm i)).
 
+Let eqCP (x y : C) : x == y -> x = y. Proof. exact/eqP. Qed.
+Let CtoR_0 : CtoR 0 = 0 := rmorph0 CtoR.
+Let CtoR_1 : CtoR 1 = 1 := rmorph1 CtoR.
+Let CtoR_D : {morph CtoR : x y / x + y >-> x + y} := rmorphD CtoR.
+Let CtoR_M : {morph CtoR : x y / x * y >-> x * y} := rmorphM CtoR.
+
 Notation CPol := (CPol.t C).
 Notation zeroCP := (@CPol.P0 C 0).
 Notation oneCP := (@CPol.P1 C 1).
@@ -994,7 +1013,7 @@ Notation evalCP := (@CPol.evalP C R CtoR cvm 1).
 Notation Pol := (NCPol.t CPol).
 Notation zeroP := (@NCPol.P0 CPol zeroCP).
 Notation oneP := (@NCPol.P1 CPol oneCP).
-Notation oppP := (@NCPol.oppP CPol id).
+Notation oppP := (@NCPol.oppP CPol id). (* id? oppCP? *)
 Notation addP := (@NCPol.addP CPol eqbCP zeroCP addCP).
 Notation mulP := (@NCPol.mulP CPol eqbCP zeroCP oneCP mulCP).
 Notation powPN := (@NCPol.powPN CPol eqbCP zeroCP oneCP mulCP).
@@ -1008,15 +1027,23 @@ Abort.
 
 Lemma evalDP P Q : evalP (addP P Q) = evalP P + evalP Q.
 Proof.
-rewrite NCPol.evalDP => //.
+apply/NCPol.evalDP/CPol.evalDP => //.
 Abort.
 
 Lemma evalMP P Q : evalP (mulP P Q) = evalP P * evalP Q.
 Proof.
+apply/NCPol.evalMP => //.
+- admit.
+- exact: CPol.evalMP.
+by move=> x p; apply: CPol.evalP_comm.
 Abort.
 
 Lemma evalXPN P n : evalP (powPN P n) = evalP P ^+ N.to_nat n.
 Proof.
+rewrite NCPol.evalXPN //=.
+- admit.
+- exact: CPol.evalMP.
+by move=> x p; apply: CPol.evalP_comm.
 Abort.
 
 End EvalSemiRing.
