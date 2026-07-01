@@ -105,8 +105,8 @@ Inductive t : Type :=
   | O : t
   | I : t
   | Co : C -> t
-  | CX : positive -> t
-  | NCX : positive -> t
+  | CX : positive -> t (* commutative variables *)
+  | NCX : positive -> t (* non-commutative variables *)
   | Add : t -> t -> t
   | Mul : t -> t -> t
   | Opp : t -> t
@@ -530,7 +530,7 @@ Let evalPE_aux s :=
 Let evalPE :=
       @PExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm.
 
-Lemma eval_norm_semiringPaux s pe :
+Lemma eval_norm_semiring_aux s pe :
   evalP s (norm_semiring pe) = evalPE_aux s pe.
 Proof.
 apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
@@ -542,9 +542,9 @@ apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
 exact/PExpr.t_R_refl.
 Qed.
 
-Lemma eval_norm_semiringP pe : evalP 1 (norm_semiring pe) = evalPE pe.
+Lemma eval_norm_semiring pe : evalP 1 (norm_semiring pe) = evalPE pe.
 Proof.
-rewrite eval_norm_semiringPaux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
+rewrite eval_norm_semiring_aux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
 - by move => _ ? -> _ ? ->.
 - by move => _ ? -> _ ? ->.
 - by move => _ ? -> _ ? /N_RP->.
@@ -593,7 +593,7 @@ Let evalPE_aux s :=
 Let evalPE :=
       @PExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm.
 
-Lemma eval_norm_ringPaux s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
+Lemma eval_norm_ring_aux s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
 Proof.
 apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
@@ -605,9 +605,9 @@ apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
 exact/PExpr.t_R_refl.
 Qed.
 
-Lemma eval_norm_ringP pe : evalP 1 (norm_ring pe) = evalPE pe.
+Lemma eval_norm_ring pe : evalP 1 (norm_ring pe) = evalPE pe.
 Proof.
-rewrite eval_norm_ringPaux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
+rewrite eval_norm_ring_aux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
 - by move => _ ? -> _ ? ->.
 - by move => _ ? -> _ ? ->.
 - by move=> _ ? ->.
@@ -936,7 +936,7 @@ Definition norm_semiring :=
 Let evalPE :=
       @PExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm.
 
-Lemma eval_norm_semiringP pe : evalP (norm_semiring pe) = evalPE pe.
+Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
 Proof.
 apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
@@ -982,7 +982,7 @@ Definition norm_ring := PExpr.eval (Pc zeroC) (Pc oneC)
 Let evalPE :=
       @PExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm.
 
-Lemma eval_norm_ringP pe : evalP (norm_ring pe) = evalPE pe.
+Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
 Proof.
 apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
@@ -1016,6 +1016,7 @@ Context (CtoR_M : {morph CtoR : x y / mulC x y >-> x * y}).
 Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 Context (cvm_comm : forall x i, GRing.comm x (cvm i)).
 
+(* Commutative polynomials *)
 Notation CPol := (CPol.t C).
 Notation eqbCP := (@CPol.t_eqb C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
@@ -1032,6 +1033,7 @@ elim: p q => [c|i p IHp|p IHp i p' IHp'] [c'|j q|q j q']//=.
 by move=> /and4P[/IHp<- /positive_eqb_OK<- /IHp'<-].
 Qed.
 
+(* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
 Notation Pc := (fun c => @NCPol.Pc CPol (@CPol.Pc C c)).
 Notation mkCXi := (fun i => @NCPol.Pc CPol (@CPol.mkXi C zeroC oneC i)).
@@ -1067,7 +1069,7 @@ Definition norm_semiring :=
 Let evalPE := @MPExpr.eval C R 0 1
                 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR cvm ncvm.
 
-Lemma eval_norm_semiringP pe : evalP (norm_semiring pe) = evalPE pe.
+Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
 Proof.
 apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
@@ -1096,6 +1098,7 @@ Context (CtoR_M : {morph CtoR : x y / mulC x y >-> x * y}).
 Context (CtoR_comm : forall x c, GRing.comm x (CtoR c)).
 Context (cvm_comm : forall x i, GRing.comm x (cvm i)).
 
+(* Commutative polynomials *)
 Notation CPol := (CPol.t C).
 Notation eqbCP := (@CPol.t_eqb C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
@@ -1105,8 +1108,9 @@ Notation addCP := (@CPol.addP C eqbC zeroC addC).
 Notation mulCP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
 Notation evalCP := (@CPol.evalP C R CtoR cvm 1).
 
+(* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
-Notation Pc := (fun c => @NCPol.Pc CPol (@CPol.Pc C c)).
+Notation constP := (fun c => @NCPol.Pc CPol (@CPol.Pc C c)).
 Notation mkCXi := (fun i => @NCPol.Pc CPol (@CPol.mkXi C zeroC oneC i)).
 Notation mkNCXi := (@NCPol.mkXi CPol zeroCP oneCP).
 Notation zeroP := (@NCPol.zeroP CPol zeroCP).
@@ -1122,12 +1126,12 @@ Proof. exact/NCPol.evalNP/CPol.evalNP. Qed.
 
 (* Normalisation *)
 Definition norm_ring :=
-  MPExpr.eval zeroP oneP addP mulP oppP powPN Pc mkCXi mkNCXi.
+  MPExpr.eval zeroP oneP addP mulP oppP powPN constP mkCXi mkNCXi.
 
 Let evalPE := @MPExpr.eval C R 0 1
                 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR cvm ncvm.
 
-Lemma eval_norm_ringP pe : evalP (norm_ring pe) = evalPE pe.
+Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
 Proof.
 apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
 - by move=> _ P <- _ Q <-; rewrite evalDP.
