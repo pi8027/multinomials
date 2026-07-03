@@ -17,19 +17,6 @@ Import GRing.Theory.
 Local Arguments Pos.add : simpl never.
 
 derive positive.
-derive N.
-
-Lemma positive_RP (x y : positive) : positive_R x y -> x = y.
-Proof. by elim => // ? ? _ ->. Qed.
-
-Lemma N_RP (n m : N) : N_R n m -> n = m.
-Proof. by case => // ? ? /positive_RP ->. Qed.
-
-Lemma positive_R_refl (x : positive) : positive_R x x.
-Proof. by elim: x; constructor. Qed.
-
-Lemma N_R_refl (n : N) : N_R n n.
-Proof. by case: n; constructor; apply: positive_R_refl. Qed.
 
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
@@ -42,8 +29,8 @@ case E : (Pos.compare x y); move: E.
 - by move=> /Pos.compare_eq <-; rewrite Z.pos_sub_diag; constructor.
 - move=> /Pos.compare_lt_iff /[dup] ltxy /Z.pos_sub_lt ->; constructor.
   by rewrite Pos.add_comm Pos.sub_add.
-- move=> /Pos.compare_gt_iff /[dup] ltyx /Z.pos_sub_gt ->; constructor.
-  by rewrite Pos.add_comm Pos.sub_add.
+move=> /Pos.compare_gt_iff /[dup] ltyx /Z.pos_sub_gt ->; constructor.
+by rewrite Pos.add_comm Pos.sub_add.
 Qed.
 
 (**********************************)
@@ -79,16 +66,6 @@ Fixpoint eval (pe : t) {struct pe} : R :=
   end.
 
 End PExpr.
-
-derive t.
-derive eval.
-
-Lemma t_R_refl C (CR : C -> C -> Type) (CR_refl : forall a, CR a a) pe :
-  t_R CR pe pe.
-Proof.
-by elim: pe; constructor=> //; [exact: positive_R_refl | exact: N_R_refl].
-Qed.
-
 End PExpr.
 
 (****************************************)
@@ -126,16 +103,6 @@ Fixpoint eval (pe : t) {struct pe} : R :=
   end.
 
 End MPExpr.
-
-derive t.
-derive eval.
-
-Lemma t_R_refl C (CR : C -> C -> Type) (CR_refl : forall a, CR a a) pe :
-  t_R CR pe pe.
-Proof.
-elim: pe; constructor=> //; try exact: positive_R_refl; exact: N_R_refl.
-Qed.
-
 End MPExpr.
 
 (******************************************************************************)
@@ -469,8 +436,7 @@ Qed.
 Lemma evalMPC s c P : evalP s (mulP_C P c) = evalP s P * CtoR c.
 Proof.
 rewrite /mulP_C; have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_0 mulr0.
-have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_1 mulr1.
-by rewrite evalMPC_aux.
+by have [/eqbCeq->|_] := ifP; [rewrite /= CtoR_1 mulr1 | rewrite evalMPC_aux].
 Qed.
 
 Lemma evalMPI s P Q i :
@@ -533,24 +499,20 @@ Let evalPE :=
 Lemma eval_norm_semiring_aux s pe :
   evalP s (norm_semiring pe) = evalPE_aux s pe.
 Proof.
-apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- by move => _ i /positive_RP->; rewrite eval_mkXi.
-exact/PExpr.t_R_refl.
+elim: pe => //=.
+- by move=> p; rewrite eval_mkXi.
+- by move=> ? <- ? <-; rewrite evalDP.
+- by move=> ? <- ? <-; rewrite evalMP.
+by move=> ? <- ?; rewrite evalXPN.
 Qed.
 
 Lemma eval_norm_semiring pe : evalP 1 (norm_semiring pe) = evalPE pe.
 Proof.
-rewrite eval_norm_semiring_aux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? /N_RP->.
-- by move => _ ? ->.
-- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
-exact/PExpr.t_R_refl.
+rewrite eval_norm_semiring_aux; elim: pe => //=.
+- by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
+- by move=> ? -> ? ->.
+- by move=> ? -> ? ->.
+by move=> ? ->.
 Qed.
 
 End EvalSemiRing.
@@ -595,26 +557,22 @@ Let evalPE :=
 
 Lemma eval_norm_ring_aux s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
 Proof.
-apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <-; rewrite evalNP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- by move => _ i /positive_RP->; rewrite eval_mkXi.
-exact/PExpr.t_R_refl.
+elim: pe => //=.
+- by move=> p; rewrite eval_mkXi.
+- by move=> ? <- ? <-; rewrite evalDP.
+- by move=> ? <- ? <-; rewrite evalMP.
+- by move=> ? <-; rewrite evalNP.
+by move=> ? <- ?; rewrite evalXPN.
 Qed.
 
 Lemma eval_norm_ring pe : evalP 1 (norm_ring pe) = evalPE pe.
 Proof.
-rewrite eval_norm_ring_aux; apply: (@PExpr.eval_R _ _ eq _ _ eq) => //=.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? ->.
-- by move=> _ ? ->.
-- by move => _ ? -> _ ? /N_RP->.
-- by move => _ ? ->.
-- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
-exact/PExpr.t_R_refl.
+rewrite eval_norm_ring_aux; elim: pe => //=.
+- by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
+- by move=> ? -> ? ->.
+- by move=> ? -> ? ->.
+- by move=> ? ->.
+by move=> ? ->.
 Qed.
 
 End EvalRing.
@@ -938,14 +896,11 @@ Let evalPE :=
 
 Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
 Proof.
-apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/PExpr.t_R_refl.
+elim: pe => //.
+- by move=> ?; rewrite eval_mkXi.
+- by move=> /= ? <- ? <-; rewrite evalDP.
+- by move=> /= ? <- ? <-; rewrite evalMP.
+by move=> /= ? <- ?; rewrite evalXPN.
 Qed.
 
 End EvalSemiRing.
@@ -984,15 +939,12 @@ Let evalPE :=
 
 Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
 Proof.
-apply: (@PExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <-; rewrite evalNP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/PExpr.t_R_refl.
+elim: pe => //.
+- by move=> ?; rewrite eval_mkXi.
+- by move=> /= ? <- ? <-; rewrite evalDP.
+- by move=> /= ? <- ? <-; rewrite evalMP.
+- by move=> /= ? <-; rewrite evalNP.
+by move=> /= ? <- ?; rewrite evalXPN.
 Qed.
 
 End EvalRing.
@@ -1071,16 +1023,12 @@ Let evalPE := @MPExpr.eval C R 0 1
 
 Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
 Proof.
-apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite CPol.eval_mkXi// Pos.add_1_r Pos.pred_succ.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/MPExpr.t_R_refl.
+elim: pe => //.
+- by move=> ?; rewrite /= CPol.eval_mkXi// Pos.add_1_r Pos.pred_succ.
+- by move=> ?; rewrite NCPol.eval_mkXi.
+- by move=> /= ? <- ? <-; rewrite evalDP.
+- by move=> /= ? <- ? <-; rewrite evalMP.
+by move=> /= ? <- ?; rewrite evalXPN.
 Qed.
 
 End EvalSemiRing.
@@ -1133,17 +1081,13 @@ Let evalPE := @MPExpr.eval C R 0 1
 
 Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
 Proof.
-apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <-; rewrite evalNP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite CPol.eval_mkXi// Pos.add_1_r Pos.pred_succ.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/MPExpr.t_R_refl.
+elim: pe => //.
+- by move=> ?; rewrite /= CPol.eval_mkXi// Pos.add_1_r Pos.pred_succ.
+- by move=> ?; rewrite NCPol.eval_mkXi.
+- by move=> /= ? <- ? <-; rewrite evalDP.
+- by move=> /= ? <- ? <-; rewrite evalMP.
+- by move=> /= ? <-; rewrite evalNP.
+by move=> /= ? <- ?; rewrite evalXPN.
 Qed.
 
 End EvalRing.
