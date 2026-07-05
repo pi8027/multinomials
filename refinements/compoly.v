@@ -160,24 +160,17 @@ Hypothesis (phimorphOpp : forall t1, phi (oppT t1) = oppR (phi t1)).
 Hypothesis (phimorphPow : forall t1 n, phi (powT t1 n) = powR (phi t1) n).
 Hypothesis (phimorphCvm : forall p, phi (cvmT p) = (cvm p)).
 Hypothesis (phimorphNCvm : forall p, phi (ncvmT p) = (ncvm p)).
-(* We could add a morphism of cvm ncvm but we'll use the same *)
 
 Hypothesis (initial : CtoR =1 phi \o CtoT).
 
-(* Interpret S into the into the monoid symbols monoid M *)
+(* Interpret C into the into rings with pow symbols R *)
 Definition interp := eval zeroR oneR addR mulR oppR powR CtoR cvm ncvm.
 
-(* Embed S into the monoid T *)
+(* Embed C into the ring T *)
 Definition emb := eval zeroT oneT addT mulT oppT powT CtoT cvmT ncvmT.
 
 Lemma initiality_sym pe : interp pe = phi (emb pe).
-Proof.
-elim: pe=> [||c|j|j|pe1 IH1 pe2 IH2|pe1 IH1 pe2 IH2|pe1 IH1| pe1 IH1 n] //=.
-- by rewrite IH1 IH2 phimorphAdd.
-- by rewrite IH1 IH2 phimorphMul.
-- by rewrite IH1 phimorphOpp.
-- by rewrite IH1 phimorphPow.
-Qed.
+Proof. by elim: pe=> //= [pe1 -> pe2 ->|pe1 -> pe2 ->|pe1 ->| pe1 -> n]. Qed.
 
 Lemma initiality pe : phi (emb pe) = interp pe.
 Proof. by rewrite initiality_sym. Qed.
@@ -616,7 +609,7 @@ Qed.
 Lemma eval_norm_semiring_aux_initiality s pe :
   evalP s (norm_semiring pe) = evalPE_aux s pe.
 Proof.
-apply: MPExpr.initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalXPN | | ]; exact: (eval_mkXi s).
+by apply: MPExpr.initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalXPN | | ]; exact: (eval_mkXi s).
 Qed.
 
 Lemma eval_norm_semiring_ind pe : evalP 1 (norm_semiring pe) = evalPE pe.
