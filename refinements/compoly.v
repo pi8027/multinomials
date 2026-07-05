@@ -17,6 +17,20 @@ Import GRing.Theory.
 Local Arguments Pos.add : simpl never.
 
 derive positive.
+derive N.
+
+Lemma positive_RP (x y : positive) : positive_R x y -> x = y.
+Proof. by elim => // ? ? _ ->. Qed.
+
+Lemma N_RP (n m : N) : N_R n m -> n = m.
+Proof. by case => // ? ? /positive_RP ->. Qed.
+
+Lemma positive_R_refl (x : positive) : positive_R x x.
+Proof. by elim: x; constructor. Qed.
+
+Lemma N_R_refl (n : N) : N_R n n.
+Proof. by case: n; constructor; apply: positive_R_refl. Qed.
+
 
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
@@ -36,37 +50,47 @@ Qed.
 (**********************************)
 (* Reified polynomial expressions *)
 (**********************************)
-Module PExpr.
-Section PExpr.
-Context (C : Type) (R : Type).
-Context (zeroR oneR : R) (addR mulR : R -> R -> R) (oppR : R -> R).
-Context (powR : R -> N -> R).
-Context (CtoR : C -> R) (vm : positive -> R).
+(* Module PExpr. *)
+(* Section PExpr. *)
+(* Context (C : Type) (R : Type). *)
+(* Context (zeroR oneR : R) (addR mulR : R -> R -> R) (oppR : R -> R). *)
+(* Context (powR : R -> N -> R). *)
+(* Context (CtoR : C -> R) (vm : positive -> R). *)
 
-Inductive t : Type :=
-  | O : t
-  | I : t
-  | Co : C -> t
-  | X : positive -> t
-  | Add : t -> t -> t
-  | Mul : t -> t -> t
-  | Opp : t -> t
-  | Pow : t -> N -> t.
+(* Inductive t : Type := *)
+(*   | O : t *)
+(*   | I : t *)
+(*   | Co : C -> t *)
+(*   | X : positive -> t *)
+(*   | Add : t -> t -> t *)
+(*   | Mul : t -> t -> t *)
+(*   | Opp : t -> t *)
+(*   | Pow : t -> N -> t. *)
 
-Fixpoint eval (pe : t) {struct pe} : R :=
-  match pe with
-  | O => zeroR
-  | I => oneR
-  | Co c => CtoR c
-  | X j => vm j
-  | Add pe1 pe2 => addR (eval pe1) (eval pe2)
-  | Mul pe1 pe2 => mulR (eval pe1) (eval pe2)
-  | Opp pe1 => oppR (eval pe1)
-  | Pow pe1 n => powR (eval pe1) n
-  end.
+(* Fixpoint eval (pe : t) {struct pe} : R := *)
+(*   match pe with *)
+(*   | O => zeroR *)
+(*   | I => oneR *)
+(*   | Co c => CtoR c *)
+(*   | X j => vm j *)
+(*   | Add pe1 pe2 => addR (eval pe1) (eval pe2) *)
+(*   | Mul pe1 pe2 => mulR (eval pe1) (eval pe2) *)
+(*   | Opp pe1 => oppR (eval pe1) *)
+(*   | Pow pe1 n => powR (eval pe1) n *)
+(*   end. *)
 
-End PExpr.
-End PExpr.
+(* End PExpr. *)
+
+(* derive t. *)
+(* derive eval. *)
+
+(* Lemma t_R_refl C (CR : C -> C -> Type) (CR_refl : forall a, CR a a) pe : *)
+(*   t_R CR pe pe. *)
+(* Proof. *)
+(* by elim: pe; constructor=> //; [exact: positive_R_refl | exact: N_R_refl]. *)
+(* Qed. *)
+
+(* End PExpr. *)
 
 (****************************************)
 (* Reified mixed-polynomial expressions *)
@@ -103,6 +127,16 @@ Fixpoint eval (pe : t) {struct pe} : R :=
   end.
 
 End MPExpr.
+
+derive t.
+derive eval.
+
+Lemma t_R_refl C (CR : C -> C -> Type) (CR_refl : forall a, CR a a) pe :
+  t_R CR pe pe.
+Proof.
+elim: pe; constructor=> //; try exact: positive_R_refl; exact: N_R_refl.
+Qed.
+
 End MPExpr.
 
 (******************************************************************************)
@@ -488,31 +522,58 @@ Qed.
 
 (* Normalisation *)
 Definition norm_semiring :=
-  PExpr.eval (Pc zeroC) (Pc oneC) addP mulP id powPN (@Pc C) mkXi.
+  MPExpr.eval (Pc zeroC) (Pc oneC) addP mulP id powPN (@Pc C) mkXi mkXi.
 
 Let evalPE_aux s :=
-      @PExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n)
-        CtoR (fun i => vm (Pos.pred (Pos.add i s))).
+      @MPExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n)
+        CtoR (fun i => vm (Pos.pred (Pos.add i s))) (fun i => vm (Pos.pred (Pos.add i s))).
 Let evalPE :=
-      @PExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm.
+      @MPExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm vm.
 
-Lemma eval_norm_semiring_aux s pe :
+Lemma eval_norm_semiring_aux_ind s pe :
   evalP s (norm_semiring pe) = evalPE_aux s pe.
 Proof.
 elim: pe => //=.
 - by move=> p; rewrite eval_mkXi.
+- by move=> p; rewrite eval_mkXi.
 - by move=> ? <- ? <-; rewrite evalDP.
 - by move=> ? <- ? <-; rewrite evalMP.
 by move=> ? <- ?; rewrite evalXPN.
+Qed. 
+
+Lemma eval_norm_semiring_aux s pe :
+  evalP s (norm_semiring pe) = evalPE_aux s pe.
+Proof.
+apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
+- by move=> _ P <- _ Q <-; rewrite evalDP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- by move => _ i /positive_RP->; rewrite eval_mkXi.
+- by move => _ i /positive_RP->; rewrite eval_mkXi.
+exact/MPExpr.t_R_refl.
 Qed.
 
-Lemma eval_norm_semiring pe : evalP 1 (norm_semiring pe) = evalPE pe.
+Lemma eval_norm_semiring_ind pe : evalP 1 (norm_semiring pe) = evalPE pe.
 Proof.
 rewrite eval_norm_semiring_aux; elim: pe => //=.
+- by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
 - by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
 - by move=> ? -> ? ->.
 - by move=> ? -> ? ->.
 by move=> ? ->.
+Qed.
+
+Lemma eval_norm_semiring pe : evalP 1 (norm_semiring pe) = evalPE pe.
+Proof.
+rewrite eval_norm_semiring_aux; apply: (@MPExpr.eval_R _ _ eq _ _ eq) => //=.
+- by move => _ ? -> _ ? ->.
+- by move => _ ? -> _ ? ->.
+- by move => _ ? -> _ ? /N_RP->.
+- by move => _ ? ->.
+- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
+- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
+exact/MPExpr.t_R_refl.
 Qed.
 
 End EvalSemiRing.
@@ -546,18 +607,19 @@ by rewrite IHp IHq opprD mulNr.
 Qed.
 
 (* Normalisation *)
-Definition norm_ring := PExpr.eval (Pc zeroC) (Pc oneC)
-                          addP mulP oppP powPN (@Pc C) (mkXi zeroC oneC).
+Definition norm_ring := MPExpr.eval (Pc zeroC) (Pc oneC)
+                          addP mulP oppP powPN (@Pc C) (mkXi zeroC oneC) (mkXi zeroC oneC).
 
 Let evalPE_aux s :=
-      @PExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n)
-        CtoR (fun i => vm (Pos.pred (Pos.add i s))).
+      @MPExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n)
+        CtoR (fun i => vm (Pos.pred (Pos.add i s))) (fun i => vm (Pos.pred (Pos.add i s))).
 Let evalPE :=
-      @PExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm.
+      @MPExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm vm.
 
-Lemma eval_norm_ring_aux s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
+Lemma eval_norm_ring_aux_ind s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
 Proof.
 elim: pe => //=.
+- by move=> p; rewrite eval_mkXi.
 - by move=> p; rewrite eval_mkXi.
 - by move=> ? <- ? <-; rewrite evalDP.
 - by move=> ? <- ? <-; rewrite evalMP.
@@ -565,14 +627,41 @@ elim: pe => //=.
 by move=> ? <- ?; rewrite evalXPN.
 Qed.
 
-Lemma eval_norm_ring pe : evalP 1 (norm_ring pe) = evalPE pe.
+Lemma eval_norm_ring_aux s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
+Proof.
+apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
+- by move=> _ P <- _ Q <-; rewrite evalDP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ ? <-; rewrite evalNP.
+- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- by move => _ i /positive_RP->; rewrite eval_mkXi.
+- by move => _ i /positive_RP->; rewrite eval_mkXi.
+exact/MPExpr.t_R_refl.
+Qed.
+
+Lemma eval_norm_ring_ind pe : evalP 1 (norm_ring pe) = evalPE pe.
 Proof.
 rewrite eval_norm_ring_aux; elim: pe => //=.
+- by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
 - by move => ?; rewrite Pos.add_1_r Pos.pred_succ.
 - by move=> ? -> ? ->.
 - by move=> ? -> ? ->.
 - by move=> ? ->.
 by move=> ? ->.
+Qed.
+
+Lemma eval_norm_ring pe : evalP 1 (norm_ring pe) = evalPE pe.
+Proof.
+rewrite eval_norm_ring_aux; apply: (@MPExpr.eval_R _ _ eq _ _ eq) => //=.
+- by move => _ ? -> _ ? ->.
+- by move => _ ? -> _ ? ->.
+- by move=> _ ? ->.
+- by move => _ ? -> _ ? /N_RP->.
+- by move => _ ? ->.
+- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
+- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
+exact/MPExpr.t_R_refl.
 Qed.
 
 End EvalRing.
@@ -889,18 +978,33 @@ Qed.
 
 (* Normalisation *)
 Definition norm_semiring :=
-  PExpr.eval (Pc zeroC) (Pc oneC) addP mulP id powPN (@Pc C) mkXi.
+  MPExpr.eval (Pc zeroC) (Pc oneC) addP mulP id powPN (@Pc C) mkXi mkXi.
 
 Let evalPE :=
-      @PExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm.
+      @MPExpr.eval C R 0 1 +%R *%R id (fun x n => x ^+ N.to_nat n) CtoR vm vm.
 
-Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
+Lemma eval_norm_semiring_ind pe : evalP (norm_semiring pe) = evalPE pe.
 Proof.
 elim: pe => //.
+- by move=> ?; rewrite eval_mkXi.
 - by move=> ?; rewrite eval_mkXi.
 - by move=> /= ? <- ? <-; rewrite evalDP.
 - by move=> /= ? <- ? <-; rewrite evalMP.
 by move=> /= ? <- ?; rewrite evalXPN.
+Qed. 
+
+Lemma eval_norm_semiring pe : evalP (norm_semiring pe) = evalPE pe.
+Proof.
+apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
+- by move=> _ P <- _ Q <-; rewrite evalDP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move=> _ i /positive_RP->.
+  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
+- move=> _ i /positive_RP->.
+  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
+exact/MPExpr.t_R_refl.
 Qed.
 
 End EvalSemiRing.
@@ -931,20 +1035,36 @@ by rewrite IHPl IHPr mulrN opprD.
 Qed.
 
 (* Normalisation *)
-Definition norm_ring := PExpr.eval (Pc zeroC) (Pc oneC)
-                          addP mulP oppP powPN (@Pc C) (mkXi zeroC oneC).
+Definition norm_ring := MPExpr.eval (Pc zeroC) (Pc oneC)
+                          addP mulP oppP powPN (@Pc C) (mkXi zeroC oneC) (mkXi zeroC oneC).
 
 Let evalPE :=
-      @PExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm.
+      @MPExpr.eval C R 0 1 +%R *%R -%R (fun x n => x ^+ N.to_nat n) CtoR vm vm.
 
-Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
+Lemma eval_norm_ring_ind pe : evalP (norm_ring pe) = evalPE pe.
 Proof.
 elim: pe => //.
+- by move=> ?; rewrite eval_mkXi.
 - by move=> ?; rewrite eval_mkXi.
 - by move=> /= ? <- ? <-; rewrite evalDP.
 - by move=> /= ? <- ? <-; rewrite evalMP.
 - by move=> /= ? <-; rewrite evalNP.
 by move=> /= ? <- ?; rewrite evalXPN.
+Qed. 
+
+Lemma eval_norm_ring pe : evalP (norm_ring pe) = evalPE pe.
+Proof.
+apply: (@MPExpr.eval_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
+- by move=> _ P <- _ Q <-; rewrite evalDP.
+- by move=> _ P <- _ Q <-; rewrite evalMP.
+- by move=> _ ? <-; rewrite evalNP.
+- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
+- by move=> _ ? ->.
+- move=> _ i /positive_RP->.
+  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
+- move=> _ i /positive_RP->.
+  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
+exact/MPExpr.t_R_refl.
 Qed.
 
 End EvalRing.
