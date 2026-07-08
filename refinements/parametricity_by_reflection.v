@@ -24,30 +24,20 @@ Lemma nat_R_refl (n : nat) : nat_R n n.
 Proof. by elim: n; constructor. Defined.
 
 (* Church encoding of `100`: *)
-Definition church_nat_100 : church_nat := Eval cbv in fun T => @iter T 100.
+Definition church_nat_100 : church_nat := Eval cbv in eval_nat 100.
 (*
 church_nat_100 =
 fun (T : Type) (f : T -> T) (x : T) =>
 f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f ...))))))))))))))))))))))
-     : forall T : Type, (T -> T) -> T -> T
+     : church_nat
 *)
 
 derive church_nat_100.
 
-Section Parametricity_by_reflection.
-
-Context (T1 T2 : Type) (T_R : T1 -> T2 -> Type).
-Context (succ1 : T1 -> T1) (succ2 : T2 -> T2).
-Context (succ_R : forall (x1 : T1) (x2 : T2), T_R x1 x2 -> T_R (succ1 x1) (succ2 x2)).
-Context (zero1 : T1) (zero2 : T2) (zero_R : T_R zero1 zero2).
-
 (* The parametricity of `iter` allows us to prove the parametricity of        *)
 (* *concrete* Church-encoded natural numbers by reflection.                   *)
-Lemma church_nat_100_R' :
-  T_R (church_nat_100 T1 succ1 zero1) (church_nat_100 T2 succ2 zero2).
-Proof. exact: (eval_nat_R _ _ (nat_R_refl 100) _ _ T_R). Defined.
-
-End Parametricity_by_reflection.
+Lemma church_nat_100_R' : church_nat_R church_nat_100 church_nat_100.
+Proof. exact: (eval_nat_R _ _ (nat_R_refl 100)). Qed.
 
 Print church_nat_100_R. (* quadratic? *)
 Print church_nat_100_R'. (* linear *)
