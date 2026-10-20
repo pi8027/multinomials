@@ -17,19 +17,6 @@ Import GRing.Theory.
 Local Arguments Pos.add : simpl never.
 
 derive positive.
-derive N.
-
-Lemma positive_RP (x y : positive) : positive_R x y -> x = y.
-Proof. by elim => // ? ? _ ->. Qed.
-
-Lemma N_RP (n m : N) : N_R n m -> n = m.
-Proof. by case => // ? ? /positive_RP ->. Qed.
-
-Lemma positive_R_refl (x : positive) : positive_R x x.
-Proof. by elim: x; constructor. Qed.
-
-Lemma N_R_refl (n : N) : N_R n n.
-Proof. by case: n; constructor; apply: positive_R_refl. Qed.
 
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
@@ -83,64 +70,6 @@ Fixpoint evalPE (pe : PExpr) {struct pe} : R :=
   end.
 
 End PExpr.
-
-Section MPExprInitial.
-Context (C : Type) (R : Type).
-Context (zeroR oneR : R) (addR mulR : R -> R -> R) (oppR : R -> R).
-Context (powR : R -> N -> R).
-Context (CtoR : C -> R) (cvm ncvm : positive -> R).
-
-Context (T : Type).
-Context (zeroT oneT : T) (addT mulT : T -> T -> T) (oppT : T -> T).
-Context (powT : T -> N -> T).
-Context (CtoT : C -> T) (phi : T -> R).
-Context (cvmT ncvmT : positive -> T).
-
-(* Evaluation directly to R
-is equivalent to
-passing through T and then to R via morphisms *)
-
-(* C *)
-(* | \ *)
-(* |  \*)
-(* |   T*)
-(* |  /*)
-(* | / *)
-(* R *)
-
-Hypothesis (phi0 : zeroR = phi zeroT).
-Hypothesis (phi1 : oneR = phi oneT).
-Hypothesis (phimorphAdd : forall t1 t2, phi (addT t1 t2) = addR (phi t1) (phi t2)).
-Hypothesis (phimorphMul : forall t1 t2, phi (mulT t1 t2) = mulR (phi t1) (phi t2)).
-Hypothesis (phimorphOpp : forall t1, phi (oppT t1) = oppR (phi t1)).
-Hypothesis (phimorphPow : forall t1 n, phi (powT t1 n) = powR (phi t1) n).
-Hypothesis (phimorphCvm : forall p, phi (cvmT p) = (cvm p)).
-Hypothesis (phimorphNCvm : forall p, phi (ncvmT p) = (ncvm p)).
-
-Hypothesis (initial : CtoR =1 phi \o CtoT).
-
-(* Interpret C into the into rings with pow symbols R *)
-Definition interp := evalPE zeroR oneR addR mulR oppR powR CtoR cvm ncvm.
-
-(* Embed C into the ring T *)
-Definition emb := evalPE zeroT oneT addT mulT oppT powT CtoT cvmT ncvmT.
-
-Lemma initiality_sym pe : interp pe = phi (emb pe).
-Proof. by elim: pe=> //= [pe1 -> pe2 ->|pe1 -> pe2 ->|pe1 ->| pe1 -> n]. Qed.
-
-Lemma initiality pe : phi (emb pe) = interp pe.
-Proof. by rewrite initiality_sym. Qed.
-
-End MPExprInitial.
-
-derive PExpr.
-derive evalPE.
-
-Lemma PExpr_R_refl C (CR : C -> C -> Type) (CR_refl : forall a, CR a a) pe :
-  PExpr_R CR pe pe.
-Proof.
-elim: pe; constructor=> //; try exact: positive_R_refl; exact: N_R_refl.
-Qed.
 
 (******************************)
 (* Reified module expressions *)
@@ -574,27 +503,6 @@ elim: pe => //=.
 by move=> ? <- ?; rewrite evalXPN.
 Qed. 
 
-(* The result by parametricity *)
-(* todo: abstract the parametricity proof scheme as in initiality *)
-Lemma eval_norm_semiring_aux_param s pe :
-  evalP s (norm_semiring pe) = evalPE_aux s pe.
-Proof.
-apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- by move => _ i /positive_RP->; rewrite eval_mkXi.
-exact/PExpr_R_refl.
-Qed.
-
-(* The result by initiality *)
-Lemma eval_norm_semiring_aux_initiality s pe :
-  evalP s (norm_semiring pe) = evalPE_aux s pe.
-Proof.
-by apply: initiality => //=; [exact: evalDP | exact: evalMP | exact: evalXPN | exact: (eval_mkXi s)].
-Qed.
-
 Lemma eval_norm_semiring pe : evalP 1 (norm_semiring pe) = evalPE pe.
 Proof.
 rewrite eval_norm_semiring_aux; elim: pe => //=.
@@ -602,17 +510,6 @@ rewrite eval_norm_semiring_aux; elim: pe => //=.
 - by move=> ? -> ? ->.
 - by move=> ? -> ? ->.
 by move=> ? ->.
-Qed.
-
-Lemma eval_norm_semiring_param pe : evalP 1 (norm_semiring pe) = evalPE pe.
-Proof.
-rewrite eval_norm_semiring_aux_param; apply: (@evalPE_R _ _ eq _ _ eq) => //=.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? /N_RP->.
-- by move => _ ? ->.
-- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
-exact/PExpr_R_refl.
 Qed.
 
 End EvalSemiRing.
@@ -667,23 +564,6 @@ elim: pe => //=.
 by move=> ? <- ?; rewrite evalXPN.
 Qed.
 
-Lemma eval_norm_ring_aux_param s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
-Proof.
-apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP s p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <-; rewrite evalNP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- by move => _ i /positive_RP->; rewrite eval_mkXi.
-exact/PExpr_R_refl.
-Qed.
-
-Lemma eval_norm_ring_aux_init s pe : evalP s (norm_ring pe) = evalPE_aux s pe.
-Proof.
-apply: initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalNP | exact: evalXPN | exact: eval_mkXi ].
-Qed.
-
 Lemma eval_norm_ring pe : evalP 1 (norm_ring pe) = evalPE pe.
 Proof.
 rewrite eval_norm_ring_aux; elim: pe => //=.
@@ -692,18 +572,6 @@ rewrite eval_norm_ring_aux; elim: pe => //=.
 - by move=> ? -> ? ->.
 - by move=> ? ->.
 by move=> ? ->.
-Qed.
-
-Lemma eval_norm_ring_param pe : evalP 1 (norm_ring pe) = evalPE pe.
-Proof.
-rewrite eval_norm_ring_aux_param; apply: (@evalPE_R _ _ eq _ _ eq) => //=.
-- by move => _ ? -> _ ? ->.
-- by move => _ ? -> _ ? ->.
-- by move=> _ ? ->.
-- by move => _ ? -> _ ? /N_RP->.
-- by move => _ ? ->.
-- by move => _ ? /positive_RP->; rewrite Pos.add_1_r Pos.pred_succ.
-exact/PExpr_R_refl.
 Qed.
 
 End EvalRing.
@@ -1028,23 +896,6 @@ elim: pe => //.
 by move=> /= ? <- ?; rewrite evalXPN.
 Qed. 
 
-Lemma eval_norm_semiring_param pe : evalP (norm_semiring pe) = evalPE pe.
-Proof.
-apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/PExpr_R_refl.
-Qed.
-
-Lemma eval_norm_semiring_init pe : evalP (norm_semiring pe) = evalPE pe.
-Proof.
-apply: initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalXPN | exact: eval_mkXi].
-Qed.
-
 End EvalSemiRing.
 
 Section EvalRing.
@@ -1091,24 +942,6 @@ elim: pe => //.
 - by move=> /= ? <-; rewrite evalNP.
 by move=> /= ? <- ?; rewrite evalXPN.
 Qed. 
-
-Lemma eval_norm_ring_param pe : evalP (norm_ring pe) = evalPE pe.
-Proof.
-apply: (@evalPE_R _ _ eq _ _ (fun x p => evalP p = x)) => //=.
-- by move=> _ P <- _ Q <-; rewrite evalDP.
-- by move=> _ P <- _ Q <-; rewrite evalMP.
-- by move=> _ ? <-; rewrite evalNP.
-- by move=> _ ? <- _ ? /N_RP->; rewrite evalXPN.
-- by move=> _ ? ->.
-- move=> _ i /positive_RP->.
-  by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-exact/PExpr_R_refl.
-Qed.
-
-Lemma eval_norm_ring_init pe : evalP (norm_ring pe) = evalPE pe.
-Proof.
-apply: initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalNP | exact: evalXPN | exact: eval_mkXi].
-Qed.
 
 End EvalRing.
 
@@ -1189,13 +1022,6 @@ elim: pe => //.
 by move=> /= ? <- ?; rewrite evalXPN.
 Qed.
 
-Lemma eval_norm_semiring_init pe : evalP (norm_semiring pe) = evalPE pe.
-Proof.
-apply: initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalXPN | | ]=> i.
-by rewrite CPol.eval_mkXi // Pos.add_1_r Pos.pred_succ.
-by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
-Qed.
-
 End EvalSemiRing.
 
 Section EvalRing.
@@ -1253,13 +1079,6 @@ elim: pe => //.
 - by move=> /= ? <- ? <-; rewrite evalMP.
 - by move=> /= ? <-; rewrite evalNP.
 by move=> /= ? <- ?; rewrite evalXPN.
-Qed.
-
-Lemma eval_norm_ring_init pe : evalP (norm_ring pe) = evalPE pe.
-Proof.
-apply: initiality=> //=; [exact: evalDP | exact: evalMP | exact: evalNP | exact: evalXPN | | ]=> i.
-by rewrite CPol.eval_mkXi // Pos.add_1_r Pos.pred_succ.
-by rewrite big_cons big_nil CtoR_1 CtoR_0 !mulr1 addr0.
 Qed.
 
 End EvalRing.
