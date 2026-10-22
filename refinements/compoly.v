@@ -3,6 +3,7 @@ From HB Require Import structures.
 From Stdlib Require Import BinPos BinNat BinInt.
 From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq choice.
 From mathcomp Require Import bigop nmodule rings_modules_and_algebras.
+From mathcomp Require Import finmap monalg.
 From mathcomp Require Import zify.
 Unset SsrOldRewriteGoalsOrder.  (* remove the line when requiring MathComp >= 2.6 *)
 
@@ -16,6 +17,8 @@ Local Open Scope ring_scope.
 Import GRing.Theory.
 
 Local Arguments Pos.add : simpl never.
+
+HB.instance Definition _ := hasDecEq.Build positive Pos.eqb_spec.
 
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
@@ -40,6 +43,8 @@ Lemma Pos_add_pred_r (x y : positive) :
   (1 < y)%positive -> Pos.add x (Pos.pred y) = Pos.pred (Pos.add x y).
 Proof. lia. Qed.
 
+(* Lists *)
+
 Definition list_eqb (T : Type) (eqT : T -> T -> bool) :=
   fix list_eqb (xs ys : seq T) : bool :=
     match xs, ys with
@@ -52,6 +57,226 @@ Lemma list_eqb_correct (T : Type) (eqT : T -> T -> bool) :
   (forall x y : T, eqT x y -> x = y) ->
   forall xs ys : seq T, list_eqb eqT xs ys -> xs = ys.
 Proof. by move=> HeqT; elim=> [|x xs IH] [|y ys] //= /andP[/HeqT-> /IH->]. Qed.
+
+(* Monomials and polynomials *)
+
+Section Malg.
+
+Context {I : choiceType}.
+
+Implicit Types (m : cmonom I).
+
+Definition dvdcm m1 m2 : bool := all (fun i => m1 i <= m2 i) (finsupp m1).
+
+Lemma dvdcmPleq {m1 m2} : reflect (forall i, m1 i <= m2 i) (dvdcm m1 m2).
+Proof.
+apply/(iffP idP) => [dvd i|?]; last exact/allP.
+by case: finsuppP (allP dvd i) => // _ ->.
+Qed.
+
+Lemma dvdcmE m1 m2 : dvdcm m1 m2 = (mmul (divcm m2 m1) m1 == m2).
+Proof.
+apply/dvdcmPleq/cmP => [+ i|+ i] => /(_ i); rewrite mulcmE divcmE.
+  exact/subnK.
+apply/contra_eqT; rewrite -ltnNge => /[dup] /ltnW /eqP ->.
+by rewrite add0n ltn_neqAle eq_sym => /andP[].
+Qed.
+
+Lemma dvdcmP {m1 m2} : reflect (exists m, mmul m m1 = m2) (dvdcm m1 m2).
+Proof.
+apply/(iffP idP); first by rewrite dvdcmE => /eqP<-; exists (divcm m2 m1).
+by move=> [m <-]; apply/dvdcmPleq => i; rewrite mulcmE leq_addl.
+Qed.
+
+Lemma dvdcmm : reflexive dvdcm.
+Proof. by move=> m; apply/dvdcmPleq. Qed.
+
+Lemma dvd1cm m : dvdcm mone m.
+Proof. by apply/dvdcmP; exists m; rewrite mulm1. Qed.
+
+Lemma dvdcm1 m : (dvdcm m mone) = (m == mone).
+Proof.
+apply/idP/eqP => [dvd|->]; last exact/dvdcmm.
+by apply/eqP/cmP => i; move: (dvdcmPleq dvd i); rewrite cm1 leqn0 => /eqP.
+Qed.
+
+Lemma dvdcm_mull d m1 m2 : dvdcm d m2 -> dvdcm d (mmul m1 m2).
+Proof.
+move=> dvd; apply/dvdcmPleq => i.
+by apply/(leq_trans (dvdcmPleq dvd i)); rewrite mulcmE leq_addl.
+Qed.
+
+Lemma dvdcm_mulr d m1 m2 : dvdcm d m1 -> dvdcm d (mmul m1 m2).
+Proof. by rewrite mulmC; apply/dvdcm_mull. Qed.
+
+Lemma divcmK m1 m2 : dvdcm m1 m2 -> mmul (divcm m2 m1) m1 = m2.
+Proof. by move=> /dvdcmP[{}m2 <-]; rewrite mulcmK. Qed.
+
+Section MalgNmod.
+
+Context {G : nmodType} (m : cmonom I).
+
+Implicit Types (g : {malg G[cmonom I]}).
+
+(* Euclidean division of polynomial by monomial *)
+Definition divfgm g :=
+  \sum_(k <- msupp g | dvdcm m k) << g@_k *g divcm k m >>.
+
+Definition modfgm g := \sum_(k <- msupp g | ~~ dvdcm m k) << g@_k *g k >>.
+
+Lemma divfgmEw g domg : (msupp g `<=` domg)%fset ->
+  divfgm g = \sum_(k <- domg | dvdcm m k) << g@_k *g divcm k m >>.
+Proof.
+move=> le_d; rewrite [LHS]big_mkcond [RHS]big_mkcond (big_fset_incl _ le_d)//.
+by move=> k _; case: msuppP => // _ _; rewrite monalgU0 if_same.
+Qed.
+
+Lemma modfgmEw g domg : (msupp g `<=` domg)%fset ->
+  modfgm g = \sum_(k <- domg | ~~ dvdcm m k) << g@_k *g k >>.
+Proof.
+move=> le_d; rewrite [LHS]big_mkcond [RHS]big_mkcond (big_fset_incl _ le_d)//.
+by move=> k _; case: msuppP => // _ _; rewrite monalgU0 if_same.
+Qed.
+
+Fact divfgm_is_nmod_morphism : nmod_morphism divfgm.
+Proof.
+split=> [|g1 g2]; first by rewrite /divfgm msupp0 big_mkcond big_seq_fset0.
+rewrite (divfgmEw (msuppD_le _ _)) (divfgmEw (fsubsetUl _ (msupp g2))).
+rewrite (divfgmEw (fsubsetUr (msupp g1) _)) -big_split/=.
+by apply/eq_bigr => k; rewrite mcoeffD monalgUD.
+Qed.
+
+Fact modfgm_is_nmod_morphism : nmod_morphism modfgm.
+Proof.
+split=> [|g1 g2]; first by rewrite /modfgm msupp0 big_mkcond big_seq_fset0.
+rewrite (modfgmEw (msuppD_le _ _)) (modfgmEw (fsubsetUl _ (msupp g2))).
+rewrite (modfgmEw (fsubsetUr (msupp g1) _)) -big_split/=.
+by apply/eq_bigr => k; rewrite mcoeffD monalgUD.
+Qed.
+
+HB.instance Definition _ :=
+  GRing.isNmodMorphism.Build {malg G[cmonom I]} {malg G[cmonom I]} divfgm
+    divfgm_is_nmod_morphism.
+
+HB.instance Definition _ :=
+  GRing.isNmodMorphism.Build {malg G[cmonom I]} {malg G[cmonom I]} modfgm
+    modfgm_is_nmod_morphism.
+
+Lemma divfgmU x k :
+  divfgm << x *g k >> = if dvdcm m k then << x *g divcm k m >> else 0.
+Proof. by rewrite (divfgmEw msuppU_le) big_mkcond big_seq_fset1 mcoeffUU. Qed.
+
+Lemma modfgmU x k : modfgm << x *g k >> = if dvdcm m k then 0 else << x *g k >>.
+Proof.
+by rewrite (modfgmEw msuppU_le) big_mkcond big_seq_fset1 mcoeffUU if_neg.
+Qed.
+
+End MalgNmod.
+
+Lemma mcoeff_div (G : nmodType) (m1 m2 : cmonom I) (g : {malg G[cmonom I]}) :
+  (divfgm m1 g)@_m2 = g@_(mmul m1 m2).
+Proof.
+rewrite raddf_sum/=; have [m_in_g|m_nin_g] := msuppP g; last first.
+  apply/big1_seq => /= _ /andP[/dvdcmP[m <-]] m_in_g; rewrite mcoeffU mulcmK.
+  by case: eqP m_in_g m_nin_g => // <-; rewrite mulmC => ->.
+rewrite big_mkcond/= (big_fsetD1 _ m_in_g)/= dvdcm_mulr ?dvdcmm// mulKcm.
+rewrite mcoeffUU big1_fset ?addr0// => /= m /[!inE] /andP[+ _] _.
+case dvdcmP => // -[{}m <-]; rewrite mulcmK mcoeffU.
+by have [->|//] := m =P _; rewrite mulmC eqxx.
+Qed.
+
+Lemma divfgMm (G : nmodType) (m1 m2 : cmonom I) (g : {malg G[cmonom I]}) :
+  divfgm (mmul m1 m2) g = divfgm m2 (divfgm m1 g).
+Proof. by apply/malgP => /= m; rewrite !mcoeff_div mulmA. Qed.
+
+Section MalgSemiRing.
+
+Context {R : pzSemiRingType}.
+
+Implicit Types (g : {malg R[cmonom I]}).
+
+Lemma mulfgmK m g : divfgm m (g * << m >>) = g.
+Proof.
+rewrite [_ * _]fgmulgU raddf_sum/= [RHS]monalgE; apply/eq_bigr => k _.
+by rewrite mulr1 divfgmU dvdcm_mull ?dvdcmm// mulcmK.
+Qed.
+
+Lemma mulKfgm m g : divfgm m (<< m >> * g) = g.
+Proof. by rewrite -commU mulfgmK. Qed.
+
+Lemma modfgmMl m g : modfgm m (g * << m >>) = 0.
+Proof.
+rewrite [_ * _]fgmulgU raddf_sum/=.
+by apply/big1_fset => /= k kg _; rewrite mulr1 modfgmU dvdcm_mull ?dvdcmm.
+Qed.
+
+Lemma modfgmMr m g : modfgm m (<< m >> * g) = 0.
+Proof. by rewrite -commU modfgmMl. Qed.
+
+Lemma divfgm_eq m g : g = divfgm m g * << m >> + modfgm m g.
+Proof.
+rewrite /divfgm /modfgm mulr_suml big_mkcond [r in _ + r]big_mkcond.
+rewrite -big_split/= [LHS]monalgE; apply/eq_bigr=> k _.
+by case: ifP => //=; rewrite (addr0, add0r)// [_ * _]fgmulUU mulr1 => /divcmK->.
+Qed.
+
+End MalgSemiRing.
+
+End Malg.
+
+(* Parametricity *)
+
+Elpi derive.param2 pred.
+Elpi derive.param2 rel.
+Elpi derive.param2 negb.
+Elpi derive.param2 andb.
+Elpi derive.param2 orb.
+
+Lemma bool_R_refl b : bool_R b b.
+Proof. by case: b; constructor. Qed.
+
+Lemma bool_R_eq b1 b2 : bool_R b1 b2 -> b1 = b2.
+Proof. by case. Qed.
+
+Elpi derive.param2 Nat.add.
+
+Lemma nat_R_refl n : nat_R n n.
+Proof. by elim: n; constructor. Qed.
+
+Lemma nat_R_eq n m : nat_R n m -> n = m.
+Proof. by elim=> // _ ? _ ->. Qed.
+
+Elpi derive.param2 positive.
+Elpi derive.param2 Pos.eqb.
+Elpi derive.param2 Pos.pred_double.
+Elpi derive.param2 Pos.succ.
+Elpi derive.param2 Pos.pred.
+Elpi derive.param2 Pos.iter_op.
+Elpi derive.param2 Pos.to_nat.
+
+Lemma positive_R_refl p : positive_R p p.
+Proof. by elim: p; constructor. Qed.
+
+Lemma positive_R_eq p q : positive_R p q -> p = q.
+Proof. by elim=> // _ ? _ ->. Qed.
+
+Lemma Pos_add_R :
+  forall p p' : positive, positive_R p p' ->
+  forall q q' : positive, positive_R q q' ->
+  positive_R (Pos.add p q) (Pos.add p' q').
+Proof.
+by move=> p _ /positive_R_eq <- q _ /positive_R_eq <-; apply/positive_R_refl.
+Qed.
+
+Elpi derive.param2.register Pos.add Pos_add_R.
+
+Elpi derive.param2 N.
+
+Elpi derive.param2 Z.
+Elpi derive.param2 Z.double.
+Elpi derive.param2 Z.pred_double.
+Elpi derive.param2 Z.succ_double.
+Elpi derive.param2 Z.pos_sub.
 
 (**********************************)
 (* Reified polynomial expressions *)
@@ -132,7 +357,10 @@ Context (C : Type) (eqbC : C -> C -> bool).
 Inductive t : Type :=
   | Pc : C -> t
   (* [PinjX i j P Q] represents [shift (i - 1) (X_0^j * P + shift 1 Q)], or   *)
-  (* equivalently, [X_i^j * shift (i - 1) P + shift i Q]                      *)
+  (* equivalently, [X_i^j * shift (i - 1) P + shift i Q]. This constructor    *)
+  (* subsumes the [Pinj] and [PX] constructors in the original definition of  *)
+  (* Sparse Horner form, and eliminates non-canonical terms of the shape      *)
+  (* [Pinj _ (Pinj _ _)].                                                     *)
   | PinjX : positive -> positive -> t -> t -> t.
 
 Fixpoint eqbP (P P' : t) : bool :=
@@ -163,6 +391,33 @@ by apply/eqbPcorrect => ? ? /eqP->.
 Qed.
 
 HB.instance Definition _ (C : eqType) := hasDecEq.Build (t C) (@t_eqP C).
+
+Elpi derive.param2 t.
+Elpi derive.param2 eqbP.
+
+Section Map.
+Context (C C' : Type) (f : C -> C').
+
+Fixpoint mapP (P : t C) : t C' :=
+  match P with
+  | Pc c => Pc (f c)
+  | PinjX i j P Q => PinjX i j (mapP P) (mapP Q)
+  end.
+
+Lemma t_R_mapP (P : t C) : t_R (fun x y => f y = x) (mapP P) P.
+Proof.
+by elim: P => [c|i j P IHP Q IHQ]/=;
+  constructor => //; apply: positive_R_refl.
+Qed.
+
+Lemma mapP_t_R (P : t C') (P' : t C) :
+  t_R (fun x y => f y = x) P P' -> mapP P' = P.
+Proof.
+elim; first by move=> _ c <-.
+by move=> i _ /positive_R_eq <- j _ /positive_R_eq <- _ {}P _ <- _ {}Q _ <-.
+Qed.
+
+End Map.
 
 Section OpsDef.
 Context (C : Type) (eqbC : C -> C -> bool).
@@ -259,19 +514,21 @@ Fixpoint addP P P' {struct P} : t :=
   end.
 
 (* Multiplication *)
-Fixpoint mapP (f : C -> C) P : t :=
+Fixpoint mapP' (f : C -> C) P : t :=
   match P with
   | Pc c => Pc (f c)
-  | PinjX i j P Q => PinjX i j (mapP f P) (mapP f Q)
+  | PinjX i j P Q =>
+      (* if C is an integral domain, [mkPinjX] can probably be [PinjX] *)
+      mkPinjX i j (mapP' f P) (mapP' f Q)
   end.
 
 Definition mulCP c P :=
   if eqbC c zeroC then zeroP else
-  if eqbC c oneC then P else mapP (mulC c) P.
+  if eqbC c oneC then P else mapP' (mulC c) P.
 
 Definition mulPC P c :=
   if eqbC c zeroC then zeroP else
-  if eqbC c oneC then P else mapP (mulC ^~ c) P.
+  if eqbC c oneC then P else mapP' (mulC ^~ c) P.
 
 Section mulPI.
 Context (mulP : t -> t -> t) (P : t).
@@ -329,11 +586,236 @@ Fixpoint powPpos (res P : t) (p : positive) : t :=
 
 Definition powPN P n := if n is Npos p then powPpos oneP P p else oneP.
 
+(* The normal form condition of CPol.t *)
+
+Definition is_norm_aux P : bool :=
+  match P with
+  | Pc c => ~~ eqbC c zeroC
+  | PinjX i _ _ Q => ~~ Pos.eqb i 1 || ~~ eqbP Q zeroP
+  end.
+
+Fixpoint is_norm P : bool :=
+  match P with
+  | Pc _ => true
+  | PinjX i j P Q => [&& is_norm_aux P, is_norm P & is_norm Q]
+  end.
+
+Context (oneCneq0 : ~~ eqbC oneC zeroC).
+Context (opp_eq0 : forall c, eqbC (oppC c) zeroC = eqbC c zeroC).
+
+Lemma norm_mkPinjS i P : is_norm P -> is_norm (mkPinjS i P).
+Proof. by case: P. Qed.
+
+Lemma norm_mkPinjX i j P Q :
+  is_norm P -> is_norm Q -> is_norm (mkPinjX i j P Q).
+Proof.
+case: P => /=[c|i' j' P' Q'].
+  by case: ifP => [_ _|/=->//]; apply/norm_mkPinjS.
+case: ifP => [/andP[? ?]|Hi']/= /and3P[HP' -> HQ' ->];
+  rewrite ?{}HP' ?{}HQ' !andbT//.
+by case: i' Q' Hi' => []//= [c|]//= ->.
+Qed.
+
+Lemma norm_mkXi i : is_norm (mkXi i).
+Proof. by rewrite /= oneCneq0. Qed.
+
+Lemma norm_mkX : is_norm mkX.
+Proof. exact: norm_mkXi. Qed.
+
+Lemma normNP P : is_norm P -> is_norm (oppP P).
+Proof.
+elim: P => //= i j P IHP Q IHQ /and3P[+ {}/IHP-> {Q}/IHQ->].
+by rewrite !andbT; case: P => [c|[i'|i'|] j' P' [c|]]//=; rewrite opp_eq0.
+Qed.
+
+Lemma normDPC P c : is_norm P -> is_norm (addPC P c).
+Proof. by elim: P => //= _ _ P _ Q IHQ /and3P[+ -> /IHQ->]; rewrite !andbT. Qed.
+
+Lemma normDPX j P P' :
+  (forall P', is_norm P' -> is_norm (addP P P')) ->
+  is_norm_aux P -> is_norm P -> is_norm P' -> is_norm (addPX addP P j P').
+Proof.
+move=> IHP HPaux HP.
+elim: P' j => /=[c _ _|i' j' P' IHP' Q' _ j /and3P[HP'aux HP' HQ']].
+  by rewrite HPaux HP.
+case: i' => [i'|i'|]/=; try by apply/and5P.
+have [_|{}j' _|{}j _] := Z_pos_subP.
+- exact/norm_mkPinjX/HQ'/IHP.
+- by rewrite norm_mkPinjX// IHP//= HP'aux HP'.
+exact/norm_mkPinjX/HQ'/IHP'.
+Qed.
+
+Lemma normDPIX i j P Q P' :
+  (forall P', is_norm P' -> is_norm (addP P P')) ->
+  (forall P', is_norm P' -> is_norm (addP Q P')) ->
+  is_norm_aux P -> is_norm P -> is_norm Q -> is_norm P' ->
+  is_norm (addPIX addP P j Q i P').
+Proof.
+move=> IHP IHQ HPaux HP HQ.
+elim: P' i => /=[c _ _|i' j' P' _ Q' IHQ' i /and3P[HP'aux HP' HQ']].
+  by rewrite HPaux HP normDPC.
+have [{IHQ'}_|{}i' _|{}i _] := Z_pos_subP; first last.
+- by rewrite /= HP'aux HP' IHQ'.
+- by rewrite /= HPaux HP IHQ//= HP'aux HP'.
+have [_|{}j' _|{}j _] := Z_pos_subP.
+- by rewrite norm_mkPinjX ?IHP ?IHQ.
+- by rewrite norm_mkPinjX ?IHP ?IHQ //= HP'aux HP'.
+exact/norm_mkPinjX/IHQ/HQ'/normDPX.
+Qed.
+
+Lemma normDP P P' : is_norm P -> is_norm P' -> is_norm (addP P P').
+Proof.
+elim: P P' => /=[c P' _|i j P + Q + P' /and3P[? HP HQ]]; first exact/normDPC.
+by move=> /(_ _ HP) IHP /(_ _ HQ) IHQ; exact/normDPIX.
+Qed.
+
+Lemma norm_mapP f P : is_norm (mapP' f P).
+Proof. by elim: P => //= i j P IHP Q IHQ; exact/norm_mkPinjX. Qed.
+
+Lemma normMPC P c : is_norm P -> is_norm (mulPC P c).
+Proof.
+by rewrite /mulPC => HP; case: ifP => // _; case: ifP => // _; exact/norm_mapP.
+Qed.
+
+Lemma normMCP c P : is_norm P -> is_norm (mulCP c P).
+Proof.
+by rewrite /mulCP => HP; case: ifP => // _; case: ifP => // _; exact/norm_mapP.
+Qed.
+
+Lemma normMPI i P P' :
+  (forall P', is_norm P' -> is_norm (mulP P P')) ->
+  is_norm P -> is_norm P' -> is_norm (mulPI mulP P i P').
+Proof.
+move=> IHP HP.
+elim: P' i => /=[c i _|i' j' P' IHP' Q' IHQ' i /and3P[HP'aux HP' HQ']].
+  exact/norm_mkPinjS/normMPC.
+have [_|{}i' _|{}i _] := Z_pos_subP.
+- exact/norm_mkPinjX/IHP/HQ'/IHP'.
+- by rewrite norm_mkPinjS// IHP//= HP'aux HP'.
+exact/norm_mkPinjX/IHQ'/HQ'/IHP'.
+Qed.
+
+Lemma normMPIX i j P Q P' :
+  (forall P', is_norm P' -> is_norm (mulP P P')) ->
+  (forall P', is_norm P' -> is_norm (mulP Q P')) ->
+  is_norm_aux P -> is_norm P -> is_norm Q -> is_norm P' ->
+  is_norm (mulPIX mulP j P Q i P').
+Proof.
+move=> IHP IHQ HPaux HP HQ.
+elim: P' i => /=[c i _|i' j' P' IHP' Q' IHQ' i /and3P[HP'aux HP' HQ']].
+  by rewrite normMPC//= HPaux HP HQ.
+have [_|{}i' _|{}i _] := Z_pos_subP.
+- by rewrite !normDP// !norm_mkPinjX ?IHP ?IHQ ?norm_mkPinjS// normMPI.
+- by rewrite !norm_mkPinjX ?IHP ?IHQ//= HP'aux HP' HQ'.
+by rewrite norm_mkPinjX ?IHP' ?IHQ'.
+Qed.
+
+Lemma normMP P P' : is_norm P -> is_norm P' -> is_norm (mulP P P').
+Proof.
+elim: P P' => /=[c P' _|i j P + Q + Q' /and3P[? HP HQ]]; first exact/normMCP.
+by move=> /(_ _ HP) IHP /(_ _ HQ) IHQ; exact/normMPIX.
+Qed.
+
+Lemma normXPpos P Q n : is_norm P -> is_norm Q -> is_norm (powPpos P Q n).
+Proof. by elim: n P => [n IHn|n IHn|] P HP HQ/=; rewrite ?normMP// !IHn. Qed.
+
+Lemma normXPN P n : is_norm P -> is_norm (powPN P n).
+Proof. by case: n => //= n; exact/normXPpos. Qed.
+
 End OpsDef.
+
+Elpi derive.param2 zeroP.
+Elpi derive.param2 oneP.
+Elpi derive.param2 mkPinjS.
+Elpi derive.param2 mkPinjX.
+Elpi derive.param2 mkXi.
+Elpi derive.param2 mkX.
+Elpi derive.param2 oppP.
+Elpi derive.param2 addPC.
+Elpi derive.param2 addPX.
+Elpi derive.param2 addPIX.
+Elpi derive.param2 addP.
+Elpi derive.param2 mapP'.
+Elpi derive.param2 mulCP.
+Elpi derive.param2 mulPC.
+Elpi derive.param2 mulPI.
+Elpi derive.param2 mulPIX.
+Elpi derive.param2 mulP.
+Elpi derive.param2 powPpos.
+Elpi derive.param2 powPN.
+Elpi derive.param2 is_norm_aux.
+Elpi derive.param2 is_norm.
+
+Section OpsMap.
+Context (C C' : Type) (CtoC' : C -> C').
+Context (eqbC : C -> C -> bool) (eqbC' : C' -> C' -> bool).
+Context (CtoC'_eqb : forall x y, eqbC' (CtoC' x) (CtoC' y) = eqbC x y).
+Context (zeroC : C) (zeroC' : C') (CtoC'_0 : CtoC' zeroC = zeroC').
+Context (oneC : C) (oneC' : C') (CtoC'_1 : CtoC' oneC = oneC').
+Context (oppC : C -> C) (oppC' : C' -> C').
+Context (CtoC'_N : forall x, CtoC' (oppC x) = oppC' (CtoC' x)).
+Context (addC : C -> C -> C) (addC' : C' -> C' -> C').
+Context (CtoC'_D : forall x y, CtoC' (addC x y) = addC' (CtoC' x) (CtoC' y)).
+Context (mulC : C -> C -> C) (mulC' : C' -> C' -> C').
+Context (CtoC'_M : forall x y, CtoC' (mulC x y) = mulC' (CtoC' x) (CtoC' y)).
+
+Let C_R (c' : C') (c : C) := CtoC' c = c'.
+
+Let eqbC_R : forall c1' c1, C_R c1' c1 -> forall c2' c2, C_R c2' c2 ->
+  bool_R (eqbC' c1' c2') (eqbC c1 c2).
+Proof. by move=> _ ? <- _ ? <-; rewrite CtoC'_eqb; exact/bool_R_refl. Qed.
+
+Let oppC_R : forall c' c, C_R c' c -> C_R (oppC' c') (oppC c).
+Proof. by move=> _ ? <-; apply/CtoC'_N. Qed.
+
+Let addC_R : forall c1' c1, C_R c1' c1 -> forall c2' c2, C_R c2' c2 ->
+  C_R (addC' c1' c2') (addC c1 c2).
+Proof. by move=> _ ? <- _ ? <-; apply/CtoC'_D. Qed.
+
+Let mulC_R : forall c1' c1, C_R c1' c1 -> forall c2' c2, C_R c2' c2 ->
+  C_R (mulC' c1' c2') (mulC c1 c2).
+Proof. by move=> _ ? <- _ ? <-; apply/CtoC'_M. Qed.
+
+Lemma mapP_N P : mapP CtoC' (oppP oppC P) = oppP oppC' (mapP CtoC' P).
+Proof. exact/mapP_t_R/oppP_R/t_R_mapP. Qed.
+
+Lemma mapP_D P Q :
+  mapP CtoC' (addP eqbC zeroC addC P Q) =
+  addP eqbC' zeroC' addC' (mapP CtoC' P) (mapP CtoC' Q).
+Proof. exact/mapP_t_R/addP_R/t_R_mapP/t_R_mapP. Qed.
+
+Lemma mapP_M P Q :
+  mapP CtoC' (mulP eqbC zeroC oneC addC mulC P Q) =
+  mulP eqbC' zeroC' oneC' addC' mulC' (mapP CtoC' P) (mapP CtoC' Q).
+Proof. exact/mapP_t_R/mulP_R/t_R_mapP/t_R_mapP. Qed.
+
+End OpsMap.
 
 (************************)
 (* Evaluation of CPol.t *)
 (************************)
+Section EvalDef.
+Context (C R : Type) (CtoR : C -> R) (vm : positive -> R).
+Context (addR mulR : R -> R -> R) (expRn : R -> nat -> R).
+
+Notation t := (t C).
+
+Implicit Types (s : positive) (P Q : t).
+
+Fixpoint evalP s P : R :=
+  match P with
+  | Pc c => CtoR c
+  | PinjX i j P Q =>
+    let s' := Pos.add i s in
+    addR
+      (mulR (expRn (vm (Pos.pred s')) (Pos.to_nat j)) (evalP (Pos.pred s') P))
+      (evalP s' Q)
+  end.
+
+End EvalDef.
+
+Elpi derive.param2 evalP.
+
 Section EvalSemiRing.
 Context (C : Type) (eqbC : C -> C -> bool).
 Context (zeroC oneC : C) (addC mulC : C -> C -> C).
@@ -366,13 +848,7 @@ Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
 
 Implicit Types (s : positive) (P Q : t).
 
-Fixpoint evalP s P : R :=
-  match P with
-  | Pc c => CtoR c
-  | PinjX i j P Q =>
-    let s' := Pos.add i s in
-    vm (Pos.pred s') ^+ Pos.to_nat j * evalP (Pos.pred s') P + evalP s' Q
-  end.
+Notation evalP := (evalP CtoR vm +%R *%R (@GRing.exp R)).
 
 Let mulrCA_vmX i n x y : vm i ^+ n * (x * y) = x * (vm i ^+ n * y).
 Proof. by rewrite !mulrA commrX. Qed.
@@ -445,7 +921,7 @@ Proof.
 rewrite /mulPC; have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_0 mulr0.
 have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_1 mulr1.
 elim: P s => [c'|i j P IHP Q IHQ] s/=; first by rewrite CtoR_M.
-by rewrite IHP IHQ mulrA mulrDl.
+by rewrite eval_mkPinjX IHP IHQ mulrA mulrDl.
 Qed.
 
 Lemma evalMCP s c P : evalP s (mulCP c P) = CtoR c * evalP s P.
@@ -453,7 +929,7 @@ Proof.
 rewrite /mulCP; have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_0 mul0r.
 have [/eqbCeq->|_] := ifP; first by rewrite /= CtoR_1 mul1r.
 elim: P s => [c'|i j P IHP Q IHQ] s/=; first by rewrite CtoR_M.
-by rewrite IHP IHQ mulrCA_vmX mulrDr.
+by rewrite eval_mkPinjX IHP IHQ mulrCA_vmX mulrDr.
 Qed.
 
 Lemma evalMPI s P i P' :
@@ -516,7 +992,7 @@ move=> Hx; elim: P s => //= i j P IHP Q IHQ s.
 exact/commrD/IHQ/commrM/IHP/commrX.
 Qed.
 
-Arguments evalP : simpl never.
+Arguments CPol.evalP : simpl never.
 
 (* Normalisation *)
 Definition norm_semiring :=
@@ -569,7 +1045,7 @@ Notation oppP := (@oppP C oppC).
 Notation addP := (@addP C eqbC zeroC addC).
 Notation mulP := (@mulP C eqbC zeroC oneC addC mulC).
 Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
-Notation evalP := (@evalP C R CtoR vm).
+Notation evalP := (evalP CtoR vm +%R *%R (@GRing.exp R)).
 
 Lemma evalNP s P : evalP s (oppP P) = - evalP s P.
 Proof.
@@ -609,6 +1085,273 @@ by move=> ? ->.
 Qed.
 
 End EvalRing.
+
+(*************************************)
+(* Refinements from monalg to CPol.t *)
+(*************************************)
+
+Section RefinementsSemiRing.
+Context (I : choiceType) (vm : positive -> I).
+Context (C : Type) (eqbC : C -> C -> bool).
+Context (zeroC oneC : C) (addC mulC : C -> C -> C).
+Context (R : pzSemiRingType) (CtoR : C -> R).
+
+Context (vm_inj : injective vm).
+Context (CtoR_eqb : forall c c', (CtoR c == CtoR c') = eqbC c c').
+Context (CtoR_0 : CtoR zeroC = 0).
+Context (CtoR_1 : CtoR oneC = 1).
+Context (CtoR_D : {morph CtoR : x y / addC x y >-> x + y}).
+Context (CtoR_M : {morph CtoR : x y / mulC x y >-> x * y}).
+
+Notation pre_is_norm_aux := (@is_norm_aux R eq_op 0%R).
+Notation pre_is_norm := (@is_norm R eq_op 0%R).
+
+Notation zeroP := (@zeroP C zeroC).
+Notation oneP := (@oneP C oneC).
+Notation mkXi := (@mkXi C zeroC oneC).
+Notation addP := (@addP C eqbC zeroC addC).
+Notation mulP := (@mulP C eqbC zeroC oneC addC mulC).
+Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
+Notation is_norm := (@is_norm C eqbC zeroC).
+
+Definition pre_CPol_to_malg' (s : positive) : t R -> {malg R[cmonom I]} :=
+  evalP malgC (fun i => << ucm (vm i) >>)
+    +%R *%R (@GRing.exp {malg R[cmonom I]}) s.
+
+Definition pre_CPol_to_malg := pre_CPol_to_malg' 1.
+
+Definition pre_CPol_R (p : {malg R[cmonom I]}) (P : t R) : Type :=
+  (pre_CPol_to_malg P = p) * pre_is_norm P.
+
+Let lt_msupp_eval s s' k P : Pos.lt s s' ->
+  k \in msupp (pre_CPol_to_malg' s' P) -> k (vm s) = 0%N.
+Proof.
+elim: P s' k => [c|i j P IHP Q IHQ] s' k ltss'/=.
+  by move=> /(fsubsetP (msuppC_le _)) /[!inE] /eqP ->; rewrite cm1.
+move=> /(fsubsetP (msuppD_le _ _)) /[!inE] /orP[|]; last by apply: IHQ; lia.
+move=> /msuppM_le[k1 [k2 []]]; rewrite expUn.
+move=> /(fsubsetP msuppU_le) /[!inE] /eqP-> /IHP + ->.
+rewrite cmM => ->; first lia.
+rewrite addn0 cmX ucmE; apply/eqP; rewrite muln_eq0 eqb0; apply/orP; right.
+by apply/eqP => /vm_inj; lia.
+Qed.
+
+Let lt_msupp_eval_PinjX s s' k i j P Q : Pos.lt (Pos.succ s) (i + s') ->
+  k \in msupp (pre_CPol_to_malg' s' (PinjX i j P Q)) -> k (vm s) = 0%N.
+Proof.
+move=> /= ltss' /(fsubsetP (msuppD_le _ _)) /[!inE] /orP[]; last first.
+  by apply: lt_msupp_eval; lia.
+move=> /msuppM_le[k1 [k2 []]]; rewrite expUn.
+move=> /(fsubsetP msuppU_le) /[!inE] /eqP-> + ->.
+rewrite cmM cmX ucmE; have [/vm_inj|_] := eqP; first lia.
+by rewrite muln0 add0n; apply: lt_msupp_eval; lia.
+Qed.
+
+Let div_eval_small s s' P : Pos.lt s s' ->
+  divfgm (ucm (vm s)) (pre_CPol_to_malg' s' P) = 0.
+Proof.
+move=> ltss'; apply/big1_seq => k /andP[] /[swap] /(lt_msupp_eval ltss').
+by move=> + /dvdcmPleq /(_ (vm s)) => ->; rewrite cmUU.
+Qed.
+
+Let mod_eval_small s s' P : Pos.lt s s' ->
+  modfgm (ucm (vm s)) (pre_CPol_to_malg' s' P) = pre_CPol_to_malg' s' P.
+Proof.
+move=> ltss'.
+by rewrite [RHS](divfgm_eq (ucm (vm s))) div_eval_small// mul0r add0r.
+Qed.
+
+Let div_eval_PinjX_small s s' i j P Q :
+  Pos.lt (Pos.succ s) (i + s') ->
+  divfgm (ucm (vm s)) (pre_CPol_to_malg' s' (PinjX i j P Q)) = 0.
+Proof.
+move=> ltss'; apply/big1_seq => k /andP[] /[swap] /(lt_msupp_eval_PinjX ltss').
+by move=> + /dvdcmPleq /(_ (vm s)) => ->; rewrite cmUU.
+Qed.
+
+Let mod_eval_PinjX_small s s' i j P Q :
+  Pos.lt (Pos.succ s) (i + s') ->
+  modfgm (ucm (vm s)) (pre_CPol_to_malg' s' (PinjX i j P Q)) =
+    pre_CPol_to_malg' s' (PinjX i j P Q).
+Proof.
+move=> ltss'.
+by rewrite [RHS](divfgm_eq (ucm (vm s))) div_eval_PinjX_small// mul0r add0r.
+Qed.
+
+Let div_eval_PinjX s i j P Q :
+  divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j))
+    (pre_CPol_to_malg' s (PinjX i j P Q)) =
+  pre_CPol_to_malg' (Pos.pred (i + s)) P.
+Proof.
+rewrite /= expUn expr1n raddfD/= mulKfgm; have [j' ->] := Pos2Nat.is_succ j.
+by rewrite expmnS divfgMm div_eval_small ?raddf0 ?addr0//; lia.
+Qed.
+
+Let mod_eval_PinjX s i j P Q :
+  modfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j))
+    (pre_CPol_to_malg' s (PinjX i j P Q)) =
+  pre_CPol_to_malg' (i + s) Q.
+Proof.
+rewrite /= expUn expr1n raddfD/= modfgmMr add0r.
+rewrite [RHS](divfgm_eq (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j))).
+have [j' ->] := Pos2Nat.is_succ j.
+rewrite {1}[in RHS]expmnS divfgMm div_eval_small; first lia.
+by rewrite raddf0 mul0r add0r.
+Qed.
+
+Let norm_aux_neq0 s P :
+  pre_is_norm_aux P -> pre_is_norm P -> pre_CPol_to_malg' s P != 0.
+Proof.
+elim: P s => [c s + _|i j P IHP Q _ s].
+  by apply/contra_neq => /malgP /(_ mone); rewrite mcoeffUU raddf0 => ->.
+rewrite [pre_is_norm _]/= => Haux /and3P[HPaux HP HQ]; apply/eqP.
+move=> /(f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j)))).
+by rewrite div_eval_PinjX raddf0; apply/eqP/IHP.
+Qed.
+
+Let norm_aux_mod_neq0 s P : pre_is_norm_aux P -> pre_is_norm P ->
+  modfgm (ucm (vm s)) (pre_CPol_to_malg' s P) != 0.
+Proof.
+elim: P s => [/= c s c_neq0 _|i j P IHP Q _ s].
+  rewrite modfgmU dvdcm1 cm1_eq1 -malgC0E.
+  by apply/contra_neq: c_neq0 => /malgC_inj.
+rewrite /is_norm_aux -/eq_op [pre_is_norm _]/=.
+case: eqVneq => [-> /= Q_neq0|i_neq1 _] /and3P[HPaux HP HQ]; last first.
+  rewrite mod_eval_PinjX_small; first by case: i i_neq1 => //; lia.
+  apply/contra_neq: (IHP (Pos.pred (i + s)) HPaux HP).
+  move/(f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j)))).
+  by rewrite div_eval_PinjX raddf0 => ->; rewrite raddf0.
+rewrite /= Pos.add_1_l Pos.pred_succ; have [{}j ->] := Pos2Nat.is_succ j.
+rewrite raddfD/= exprS -mulrA modfgmMr add0r mod_eval_small; first lia.
+case: {i j P IHP HPaux HP} Q Q_neq0 HQ => [c|i j P Q] .
+  by move=> + _ /=; apply/contra_neq; rewrite -malgC0E => /malgC_inj ->.
+rewrite [pre_is_norm _]/= => _ /and3P[HPaux HP HQ]; apply/eqP.
+move/(f_equal
+  (divfgm (expmn (ucm (vm (Pos.pred (i + Pos.succ s)))) (Pos.to_nat j)))).
+by rewrite div_eval_PinjX raddf0; apply/eqP/norm_aux_neq0.
+Qed.
+
+Let eqb_R_aux s c P :
+  pre_is_norm P -> c%:MP = pre_CPol_to_malg' s P -> P = Pc c.
+Proof.
+case: P => [/=c' _ /malgC_inj->//|i j P Q].
+rewrite [pre_is_norm _]/= => /and3P[HPaux HP HQ].
+move=> /(f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j)))).
+rewrite div_eval_PinjX divfgmU dvdcm1; have [j' ->] := Pos2Nat.is_succ j.
+case: ifP => [/cmP /(_ (vm (Pos.pred (i + s))))|_].
+  by rewrite cmX cmUU muln1 cm1.
+by move/esym/eqP; rewrite -[_ == _]negbK norm_aux_neq0.
+Qed.
+
+Let pre_eqb_R :
+  forall p P, pre_CPol_R p P -> forall p' P', pre_CPol_R p' P' ->
+  (p == p') = (P == P').
+Proof.
+move=> _ P [<- P_norm] _ P' [<- P'_norm]; apply/eqP/eqP => [|->//].
+rewrite /pre_CPol_to_malg.
+elim: P P' xH P_norm P'_norm => [c P'|i j P IHP Q IHQ [c'|i' j' P' Q']] s.
+- by move=> _ ? /eqb_R_aux->.
+- by move=> ? _ /esym /eqb_R_aux; apply.
+rewrite [pre_is_norm _]/= => /and3P[HPaux HP HQ].
+rewrite [pre_is_norm _]/= => /and3P[HP'aux HP' HQ'] Heq.
+have {}IHP := IHP _ _ HP HP'.
+have {HQ HQ'}IHQ := IHQ _ _ HQ HQ'.
+have eqii': i = i'.
+  apply/contra_eq: Heq => neqii' {IHP IHQ}.
+  wlog ltii': i j P Q i' j' P' Q' HPaux HP HP'aux HP' {neqii'} / Pos.lt i i'.
+    have [?|[eqii'|?]] := Pos.lt_total i i'.
+    - exact.
+    - by move: neqii'; rewrite eqii' eq_refl.
+    by rewrite eq_sym; exact.
+  apply/eqP.
+  move/(f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j)))).
+  rewrite div_eval_PinjX; have [{}j ->] := Pos2Nat.is_succ j.
+  rewrite expmnS divfgMm [in RHS]div_eval_PinjX_small; first lia.
+  by rewrite raddf0; apply/eqP/norm_aux_neq0.
+move: Heq; rewrite -{i'}eqii' => Heq.
+have eqjj': j = j'.
+  apply/contra_eq: Heq => neqjj' {IHP IHQ}.
+  wlog ltjj': j P Q j' P' Q' HPaux HP HP'aux HP' {neqjj'} / Pos.lt j j'.
+    have [?|[eqjj'|?]] := Pos.lt_total j j'.
+    - exact.
+    - by move: neqjj'; rewrite eqjj' eq_refl.
+    by rewrite eq_sym; exact.
+  apply/eqP.
+  move/(f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j)))).
+  rewrite div_eval_PinjX /=.
+  have {ltjj'} ->: j' = (j + (j' - j))%positive by lia.
+  rewrite Pos2Nat.inj_add exprD -mulrA raddfD/= expUn expr1n mulKfgm.
+  have [j'' ->] := Pos2Nat.is_succ j.
+  rewrite expmnS divfgMm div_eval_small ?raddf0 ?addr0; first lia.
+  have [{j' j''}j ->] := Pos2Nat.is_succ (j' - j).
+  move/(f_equal (modfgm (ucm (vm (Pos.pred (i + s)))))).
+  by rewrite exprS -mulrA modfgmMr; apply/eqP/norm_aux_mod_neq0.
+move: Heq; rewrite -{j'}eqjj' => Heq.
+move:
+  (f_equal (divfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j))) Heq)
+  (f_equal (modfgm (expmn (ucm (vm (Pos.pred (i + s)))) (Pos.to_nat j))) Heq).
+by rewrite !div_eval_PinjX !mod_eval_PinjX => /IHP -> /IHQ ->.
+Qed.
+
+Definition CPol_to_malg : t C -> {malg R[cmonom I]} :=
+  evalP (malgC \o CtoR) (fun i => << ucm (vm i) >>)
+    +%R *%R (@GRing.exp {malg R[cmonom I]}) 1.
+
+Definition CPol_R (p : {malg R[cmonom I]}) (P : t C) : Type :=
+  (CPol_to_malg P = p) * is_norm P.
+
+Let CPol_to_malg_map P : pre_CPol_to_malg (mapP CtoR P) = CPol_to_malg P.
+Proof.
+apply/(@evalP_R R C (fun x y => CtoR y = x) _ _ eq)/t_R_mapP/positive_R_refl.
+- by move=> /= _ ? <-.
+- by move=> ? _ /positive_R_eq<-.
+- by move=> ? _ <- ? _ <-.
+- by move=> ? _ <- ? _ <-.
+by move=> ? _ <- ? _ /nat_R_eq<-.
+Qed.
+
+Let CPol_R_map p P : pre_CPol_R p (mapP CtoR P) = CPol_R p P.
+Proof.
+congr ((_ = _) * Datatypes.is_true _)%type; first exact/CPol_to_malg_map.
+apply/bool_R_eq/(@is_norm_R R C (fun x y => CtoR y = x))/t_R_mapP/CtoR_0.
+by move=> _ ? <- _ ? <-; rewrite CtoR_eqb; exact/bool_R_refl.
+Qed.
+
+Lemma eqb_R : forall p P, CPol_R p P -> forall p' P', CPol_R p' P' ->
+  (p == p') = (eqbP eqbC P P').
+Proof.
+move=> p P Hp p' P' Hp'; rewrite -!CPol_R_map in Hp Hp'.
+rewrite (pre_eqb_R Hp Hp').
+apply/bool_R_eq/eqbP_R/t_R_mapP/t_R_mapP => _ ? <- _ ? <-.
+by rewrite CtoR_eqb; exact/bool_R_refl.
+Qed.
+
+Lemma add_R : forall p p', CPol_R p p' -> forall q q', CPol_R q q' ->
+  CPol_R (p + q) (addP p' q').
+Proof.
+move=> _ p [<- p_norm] _ q [<- q_norm]; apply/pair/normDP => //.
+rewrite -!CPol_to_malg_map (mapP_D CtoR_eqb CtoR_0 CtoR_D); apply/evalDP.
+- by move=> ? ? /eqP.
+- exact: rmorph0.
+exact: rmorphD.
+Qed.
+
+Lemma mul_R : forall p p', CPol_R p p' -> forall q q', CPol_R q q' ->
+  CPol_R (p * q) (mulP p' q').
+Proof.
+move=> _ p [<- p_norm] _ q [<- q_norm]; apply/pair/normMP => //.
+rewrite -!CPol_to_malg_map (mapP_M CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M).
+apply/evalMP.
+- by move=> ? ? /eqP.
+- exact: rmorph0.
+- exact: rmorph1.
+- exact: rmorphD.
+- exact: rmorphM.
+move=> x i; rewrite /GRing.comm [LHS]fgmulgU [RHS]fgmulUg.
+by apply/eq_bigr => /= j _; rewrite mul1r mulr1 mulmC.
+Qed.
+
+End RefinementsSemiRing.
 
 End CPol.
 
@@ -1032,7 +1775,7 @@ Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
 Notation mulCP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalCP := (@CPol.evalP C R CtoR cvm 1).
+Notation evalCP := (@CPol.evalP C R CtoR cvm +%R *%R (@GRing.exp R) 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
@@ -1106,7 +1849,7 @@ Notation oneCP := (@CPol.oneP C oneC).
 Notation oppCP := (@CPol.oppP C oppC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
 Notation mulCP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalCP := (@CPol.evalP C R CtoR cvm 1).
+Notation evalCP := (@CPol.evalP C R CtoR cvm +%R *%R (@GRing.exp R) 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
@@ -1380,7 +2123,7 @@ Notation zeroP := (@CPol.zeroP C zeroC).
 Notation oneP := (@CPol.oneP C oneC).
 Notation addP := (@CPol.addP C eqbC zeroC addC).
 Notation mulP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalP := (@CPol.evalP C R CtoR vmR 1).
+Notation evalP := (@CPol.evalP C R CtoR vmR +%R *%R (@GRing.exp R) 1).
 Notation normP := (@CPol.norm_semiring C eqbC zeroC oneC addC mulC).
 
 (* Free semimodule *)
@@ -1435,7 +2178,7 @@ Notation oneP := (@CPol.oneP C oneC).
 Notation oppP := (@CPol.oppP C oppC).
 Notation addP := (@CPol.addP C eqbC zeroC addC).
 Notation mulP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalP := (@CPol.evalP C R CtoR vmR 1).
+Notation evalP := (@CPol.evalP C R CtoR vmR +%R *%R (@GRing.exp R) 1).
 Notation normP := (@CPol.norm_semiring C eqbC zeroC oneC addC mulC).
 
 (* Free module *)
@@ -1606,7 +2349,7 @@ Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
 Notation mulCP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalCP := (@CPol.evalP C R CtoR cvmR 1).
+Notation evalCP := (@CPol.evalP C R CtoR cvmR +%R *%R (@GRing.exp R) 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
@@ -1673,7 +2416,7 @@ Notation oneCP := (@CPol.oneP C oneC).
 Notation oppCP := (@CPol.oppP C oppC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
 Notation mulCP := (@CPol.mulP C eqbC zeroC oneC addC mulC).
-Notation evalCP := (@CPol.evalP C R CtoR cvmR 1).
+Notation evalCP := (@CPol.evalP C R CtoR cvmR +%R *%R (@GRing.exp R) 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).

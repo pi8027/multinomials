@@ -879,6 +879,9 @@ Lemma mcoeffMrw (d1 d2 : {fset K}) g1 g2 k :
     (g1@_k1 * g2@_k2) *+ (k1 * k2 == k)%M.
 Proof. by move=> le1 le2; rewrite (mcoeffMlw _ le1 le2) exchange_big. Qed.
 
+Lemma expUn x k n : << x *g k >> ^+ n = << x ^+ n *g expmn k n >>.
+Proof. by elim: n => // n IHn; rewrite exprS IHn [LHS]fgmulUU exprS expmnS. Qed.
+
 Lemma mcoeffMl g1 g2 k :
   (g1 * g2)@_k = \sum_(k1 <- msupp g1) \sum_(k2 <- msupp g2)
     (g1@_k1 * g2@_k2) *+ (k1 * k2 == k)%M.
@@ -961,6 +964,21 @@ Qed.
 HB.instance Definition _ :=
   GRing.isMonoidMorphism.Build {malg R[K]} R (mcoeff 1%M)
     mcoeff1g_is_monoid_morphism.
+
+End MalgSemiRingTheory.
+
+(* -------------------------------------------------------------------- *)
+Section MalgSemiRingTheory.
+
+Context (K : conomType) (R : pzSemiRingType).
+
+Implicit Types (g : {malg R[K]}) (k : K).
+
+Lemma commU g k : GRing.comm g << k >>.
+Proof.
+rewrite /GRing.comm [LHS]fgmulgU [RHS]fgmulUg.
+by apply/eq_bigr => i _; rewrite mulr1 mul1r mulmC.
+Qed.
 
 End MalgSemiRingTheory.
 
@@ -1555,6 +1573,15 @@ Proof. by rewrite cmU eqxx. Qed.
 
 Lemma cmM i m1 m2 : (m1 * m2)%M i = (m1 i + m2 i)%N.
 Proof. exact/mulcmE. Qed.
+
+Lemma cmX i m n : expmn m n i = (n * m i)%N.
+Proof. by elim: n => [|n IHn]; rewrite ?cm1// expmnS cmM IHn. Qed.
+
+Lemma mulcmK m : cancel (@mmul _ ^~ m) (@divcm _ ^~ m).
+Proof. by move=> m'; apply/eqP/cmP => i; rewrite divcmE mulcmE addnK. Qed.
+
+Lemma mulKcm m : cancel (mmul m) (@divcm _ ^~ m).
+Proof. by move=> m'; rewrite mulmC mulcmK. Qed.
 
 Lemma cmE_eq0 m i : (m i == 0%N) = (i \notin finsupp m).
 Proof. by rewrite memNfinsupp. Qed.
