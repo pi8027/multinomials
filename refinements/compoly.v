@@ -17,8 +17,6 @@ Import GRing.Theory.
 
 Local Arguments Pos.add : simpl never.
 
-derive positive.
-
 Variant Z_pos_sub_spec (x y : positive) : Z -> Set :=
   | Z_pos_sub_Eq : x = y -> Z_pos_sub_spec Z0
   | Z_pos_sub_Gt z : x = Pos.add y z -> Z_pos_sub_spec (Z.pos z)
@@ -41,6 +39,19 @@ Proof. lia. Qed.
 Lemma Pos_add_pred_r (x y : positive) :
   (1 < y)%positive -> Pos.add x (Pos.pred y) = Pos.pred (Pos.add x y).
 Proof. lia. Qed.
+
+Definition list_eqb (T : Type) (eqT : T -> T -> bool) :=
+  fix list_eqb (xs ys : seq T) : bool :=
+    match xs, ys with
+    | [::], [::] => true
+    | x :: xs, y :: ys => eqT x y && list_eqb xs ys
+    | _, _ => false
+    end.
+
+Lemma list_eqb_correct (T : Type) (eqT : T -> T -> bool) :
+  (forall x y : T, eqT x y -> x = y) ->
+  forall xs ys : seq T, list_eqb eqT xs ys -> xs = ys.
+Proof. by move=> HeqT; elim=> [|x xs IH] [|y ys] //= /andP[/HeqT-> /IH->]. Qed.
 
 (**********************************)
 (* Reified polynomial expressions *)
@@ -115,18 +126,50 @@ End MExpr.
 (******************************************************************************)
 Module CPol.
 
-derive Inductive t (C : Type) : Type :=
+Section Def.
+Context (C : Type) (eqbC : C -> C -> bool).
+
+Inductive t : Type :=
   | Pc : C -> t
   (* [PinjX i j P Q] represents [shift (i - 1) (X_0^j * P + shift 1 Q)], or   *)
   (* equivalently, [X_i^j * shift (i - 1) P + shift i Q]                      *)
   | PinjX : positive -> positive -> t -> t -> t.
+
+Fixpoint eqbP (P P' : t) : bool :=
+  match P, P' with
+  | Pc c, Pc c' => eqbC c c'
+  | PinjX i j P Q, PinjX i' j' P' Q' =>
+      [&& Pos.eqb i i', Pos.eqb j j', eqbP P P' & eqbP Q Q']
+  | _, _ => false
+  end.
+
+Lemma eqbPcorrect : (forall c c' : C, eqbC c c' -> c = c') ->
+  forall P P' : t, eqbP P P' -> P = P'.
+Proof.
+move=> HeqbC.
+elim=> [c|i j P IHP Q IHQ][c'|i' j' P' Q']//=; first by move=> /HeqbC->.
+by move=> /and4P[/Pos.eqb_eq-> /Pos.eqb_eq-> /IHP-> /IHQ->].
+Qed.
+
+Lemma eqbPrefl : reflexive eqbC -> reflexive eqbP.
+Proof. by move=> ?; elim => //= i j _ -> _ ->; rewrite !Pos.eqb_refl. Qed.
+
+End Def.
+
+Lemma t_eqP (C : eqType) : Equality.axiom (@eqbP C eq_op).
+Proof.
+move=> P Q; apply/(iffP idP) => [|->]; last exact/eqbPrefl.
+by apply/eqbPcorrect => ? ? /eqP->.
+Qed.
+
+HB.instance Definition _ (C : eqType) := hasDecEq.Build (t C) (@t_eqP C).
 
 Section OpsDef.
 Context (C : Type) (eqbC : C -> C -> bool).
 Context (zeroC oneC : C) (oppC : C -> C) (addC mulC : C -> C -> C).
 
 Notation t := (t C).
-Notation t_eqb := (t_eqb eqbC).
+Notation eqbP := (eqbP eqbC).
 
 Implicit Types (P Q : t).
 
@@ -145,7 +188,7 @@ Definition mkPinjX i j P Q : t :=
   match P with
   | Pc c => if eqbC c zeroC then mkPinjS i Q else PinjX i j P Q
   | PinjX i' j' P' Q' =>
-    if Pos.eqb i' 1 && t_eqb Q' zeroP then
+    if Pos.eqb i' 1 && eqbP Q' zeroP then
       PinjX i (j + j') P' Q
     else
       PinjX i j (PinjX i' j' P' Q') Q
@@ -323,12 +366,6 @@ Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
 
 Implicit Types (s : positive) (P Q : t).
 
-Let mulrCA_vmX i n x y : vm i ^+ n * (x * y) = x * (vm i ^+ n * y).
-Proof. by rewrite !mulrA commrX. Qed.
-
-Let mulrAC_vmX x y i n : x * y * vm i ^+ n = x * vm i ^+ n * y.
-Proof. by rewrite -!mulrA commrX. Qed.
-
 Fixpoint evalP s P : R :=
   match P with
   | Pc c => CtoR c
@@ -336,6 +373,12 @@ Fixpoint evalP s P : R :=
     let s' := Pos.add i s in
     vm (Pos.pred s') ^+ Pos.to_nat j * evalP (Pos.pred s') P + evalP s' Q
   end.
+
+Let mulrCA_vmX i n x y : vm i ^+ n * (x * y) = x * (vm i ^+ n * y).
+Proof. by rewrite !mulrA commrX. Qed.
+
+Let mulrAC_vmX x y i n : x * y * vm i ^+ n = x * vm i ^+ n * y.
+Proof. by rewrite -!mulrA commrX. Qed.
 
 Lemma eval_mkPinjS i' s P : evalP s (mkPinjS i' P) = evalP (Pos.add i' s) P.
 Proof. by case: P => //= i j P Q; do ?[lia|f_equal]. Qed.
@@ -347,7 +390,7 @@ Lemma eval_mkPinjX s i j P Q :
 Proof.
 case: P => [c|[i'|i'|] j' P' Q']/=; try by do ?[lia|f_equal].
 - by have [/eqbCeq->|//=] := ifP; rewrite CtoR_0 mulr0 add0r eval_mkPinjS.
-have [/(t_eqb_correct eqbCeq)->|]//= := ifP.
+have [/(eqbPcorrect eqbCeq)->|]//= := ifP.
 by rewrite Pos.add_1_l Pos.pred_succ CtoR_0 addr0 Pos2Nat.inj_add exprD mulrA.
 Qed.
 
@@ -578,16 +621,6 @@ Module NCPol.
 
 Implicit Types (pre m : seq positive).
 
-derive Inductive t (C : Type) : Type :=
-  | Pc : C -> t
-  | PX : seq positive -> t -> t -> t. (* [PX m P Q] represents [m * P + Q] *)
-
-(* On normal forms:                                                           *)
-(* - [m] in [PX m P Q] must be non-empty.                                     *)
-(* - [PX m1 (PX m2 P zeroP) Q] can be normalised to [PX (m1 ++ m2) P Q].      *)
-(* - For any [PX m1 P1 (PX m2 P2 P3)], the head of [m1] must be smaller than  *)
-(*   the head of [m2].                                                        *)
-
 (* comparison of two monomials [m1] and [m2] of type [seq positive] *)
 Variant comparison_monom : Set :=
   (* m1 = m2 *)
@@ -647,13 +680,42 @@ rewrite -(Pos.compare_eq _ _ Eij).
 by case: IH => *; rewrite -?cat_cons; constructor.
 Qed.
 
+Section Def.
+Context (C : Type) (eqbC : C -> C -> bool).
+
+Inductive t : Type :=
+  | Pc : C -> t
+  | PX : seq positive -> t -> t -> t. (* [PX m P Q] represents [m * P + Q] *)
+
+(* On normal forms:                                                           *)
+(* - [m] in [PX m P Q] must be non-empty.                                     *)
+(* - [PX m1 (PX m2 P zeroP) Q] can be normalised to [PX (m1 ++ m2) P Q].      *)
+(* - For any [PX m1 P1 (PX m2 P2 P3)], the head of [m1] must be smaller than  *)
+(*   the head of [m2].                                                        *)
+
+Fixpoint eqbP (P P' : t) : bool :=
+  match P, P' with
+  | Pc c, Pc c' => eqbC c c'
+  | PX m P Q, PX m' P' Q' => [&& list_eqb Pos.eqb m m', eqbP P P' & eqbP Q Q']
+  | _, _ => false
+  end.
+
+Lemma eqbPcorrect : (forall c c' : C, eqbC c c' -> c = c') ->
+  forall P P' : t, eqbP P P' -> P = P'.
+Proof.
+move=> HeqbC; elim=> [c|m P IHP Q IHQ] [c'|m' P' Q']//=.
+  by move=> /HeqbC->.
+by move=> /and3P[/(list_eqb_correct Peqb_true_eq)-> /IHP-> /IHQ->].
+Qed.
+
+End Def.
+
 Section OpsDef.
-Context (C : Type).
-Context (eqbC : C -> C -> bool).
+Context (C : Type) (eqbC : C -> C -> bool).
 Context (zeroC oneC : C) (oppC : C -> C) (addC mulC : C -> C -> C).
 
 Notation t := (t C).
-Notation t_eqb := (t_eqb eqbC).
+Notation eqbP := (eqbP eqbC).
 
 Implicit Types (P Q : t).
 
@@ -965,7 +1027,7 @@ Context (comm_cvm : forall x i, GRing.comm x (cvm i)).
 
 (* Commutative polynomials *)
 Notation CPol := (CPol.t C).
-Notation eqbCP := (@CPol.t_eqb C eqbC).
+Notation eqbCP := (@CPol.eqbP C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
@@ -987,7 +1049,7 @@ Notation evalP := (@NCPol.evalP CPol R evalCP ncvm).
 Implicit Types (P Q : Pol).
 
 Let eqbCPeq (P Q : CPol) : eqbCP P Q -> P = Q.
-Proof. exact: CPol.t_eqb_correct. Qed.
+Proof. exact: CPol.eqbPcorrect. Qed.
 
 Lemma evalDP P Q : evalP (addP P Q) = evalP P + evalP Q.
 Proof. exact/NCPol.evalDP/CPol.evalDP. Qed.
@@ -1038,7 +1100,7 @@ Context (comm_cvm : forall x i, GRing.comm x (cvm i)).
 
 (* Commutative polynomials *)
 Notation CPol := (CPol.t C).
-Notation eqbCP := (@CPol.t_eqb C eqbC).
+Notation eqbCP := (@CPol.eqbP C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation oppCP := (@CPol.oppP C oppC).
@@ -1089,31 +1151,36 @@ End Mixed.
 (******************************************************************************)
 Module Mod.
 
-derive Inductive t (R : Type) : Type :=
-  | MO : t
-  | MX : positive -> R -> t -> t.
+Section Def.
 
-Arguments MO {R}.
+Context (C : Type) (eqbC : C -> C -> bool).
+
+Inductive t : Type :=
+  | MO : t
+  | MX : positive -> C -> t -> t.
+
+End Def.
+
+Arguments MO {C}.
 
 Section OpsDef.
-Context (R : Type) (eqbR : R -> R -> bool).
-Context (zeroR oneR : R) (oppR : R -> R) (addR mulR : R -> R -> R).
+Context (C : Type) (eqbC : C -> C -> bool).
+Context (zeroC oneC : C) (oppC : C -> C) (addC mulC : C -> C -> C).
 
-Notation t := (t R).
-Notation t_eqb := (t_eqb R).
+Notation t := (t C).
 
 Implicit Types (v w : t).
 
 Definition mkMinj i v : t :=
   if v is MX i' x v then MX (Pos.add i i') x v else MO.
 
-Definition mkMX i x v : t := if eqbR x zeroR then mkMinj i v else MX i x v.
+Definition mkMX i x v : t := if eqbC x zeroC then mkMinj i v else MX i x v.
 
-Definition mkXi i : t := MX i oneR MO.
+Definition mkXi i : t := MX i oneC MO.
 
 (* Opposite *)
 Fixpoint oppM v {struct v} : t :=
-  if v is MX i x v then MX i (oppR x) (oppM v) else MO.
+  if v is MX i x v then MX i (oppC x) (oppM v) else MO.
 
 (* Addition *)
 Fixpoint addM v w {struct v} : t :=
@@ -1123,7 +1190,7 @@ Fixpoint addM v w {struct v} : t :=
        if w is MX j y w then
          match Z.pos_sub i j with
          | Zpos k => MX j y (addM_X k x w)
-         | Z0 => mkMX i (addR x y) (addM v w)
+         | Z0 => mkMX i (addC x y) (addM v w)
          | Zneg k => MX i x (addM v (MX k y w))
          end
        else MX i x v) i x w
@@ -1131,7 +1198,7 @@ Fixpoint addM v w {struct v} : t :=
 
 (* Scale *)
 Fixpoint scaleM x v {struct v} : t :=
-  if v is MX i y v then mkMX i (mulR x y) (scaleM x v) else MO.
+  if v is MX i y v then mkMX i (mulC x y) (scaleM x v) else MO.
 
 End OpsDef.
 
@@ -1308,7 +1375,7 @@ Notation evalPE :=
 
 (* Commutative polynomials *)
 Notation Pol := (CPol.t C).
-Notation eqbP := (@CPol.t_eqb C eqbC).
+Notation eqbP := (@CPol.eqbP C eqbC).
 Notation zeroP := (@CPol.zeroP C zeroC).
 Notation oneP := (@CPol.oneP C oneC).
 Notation addP := (@CPol.addP C eqbC zeroC addC).
@@ -1333,7 +1400,7 @@ Let evalME :=
 Lemma eval_norm_semimodule me : evalM 1 (norm_semimodule me) = evalME me.
 Proof.
 apply/eval_norm_semimodule => //.
-- exact/CPol.t_eqb_correct.
+- exact/CPol.eqbPcorrect.
 - exact/CPol.evalDP.
 - exact/CPol.evalMP.
 exact/CPol.eval_norm_semiring.
@@ -1362,7 +1429,7 @@ Notation evalPE :=
 
 (* Commutative polynomials *)
 Notation Pol := (CPol.t C).
-Notation eqbP := (@CPol.t_eqb C eqbC).
+Notation eqbP := (@CPol.eqbP C eqbC).
 Notation zeroP := (@CPol.zeroP C zeroC).
 Notation oneP := (@CPol.oneP C oneC).
 Notation oppP := (@CPol.oppP C oppC).
@@ -1389,7 +1456,7 @@ Let evalME :=
 Lemma eval_norm_module me : evalM 1 (norm_module me) = evalME me.
 Proof.
 apply/eval_norm_module => //.
-- exact/CPol.t_eqb_correct.
+- exact/CPol.eqbPcorrect.
 - exact/CPol.evalNP.
 - exact/CPol.evalDP.
 - exact/CPol.evalMP.
@@ -1422,7 +1489,7 @@ Notation evalPE :=
 
 (* Non-commutative polynomials *)
 Notation Pol := (NCPol.t C).
-Notation eqbP := (@NCPol.t_eqb C eqbC).
+Notation eqbP := (@NCPol.eqbP C eqbC).
 Notation zeroP := (@NCPol.zeroP C zeroC).
 Notation oneP := (@NCPol.oneP C oneC).
 Notation addP := (@NCPol.addP C eqbC zeroC addC).
@@ -1447,7 +1514,7 @@ Let evalME :=
 Lemma eval_norm_semimodule me : evalM 1 (norm_semimodule me) = evalME me.
 Proof.
 apply/eval_norm_semimodule => //.
-- exact/NCPol.t_eqb_correct.
+- exact/NCPol.eqbPcorrect.
 - exact/NCPol.evalDP.
 - exact/NCPol.evalMP.
 exact/NCPol.eval_norm_semiring.
@@ -1474,7 +1541,7 @@ Notation evalPE :=
 
 (* Non-commutative polynomials *)
 Notation Pol := (NCPol.t C).
-Notation eqbP := (@NCPol.t_eqb C eqbC).
+Notation eqbP := (@NCPol.eqbP C eqbC).
 Notation zeroP := (@NCPol.zeroP C zeroC).
 Notation oneP := (@NCPol.oneP C oneC).
 Notation oppP := (@NCPol.oppP C oppC).
@@ -1500,7 +1567,7 @@ Let evalME := @evalME PExpr U 0 +%R -%R (fun x => GRing.scale (evalPE x)) vmU.
 Lemma eval_norm_module me : evalM 1 (norm_module me) = evalME me.
 Proof.
 apply/eval_norm_module => //.
-- exact/NCPol.t_eqb_correct.
+- exact/NCPol.eqbPcorrect.
 - exact/NCPol.evalNP.
 - exact/NCPol.evalDP.
 - exact/NCPol.evalMP.
@@ -1534,7 +1601,7 @@ Notation evalPE :=
 
 (* Commutative polynomials *)
 Notation CPol := (CPol.t C).
-Notation eqbCP := (@CPol.t_eqb C eqbC).
+Notation eqbCP := (@CPol.eqbP C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation addCP := (@CPol.addP C eqbC zeroC addC).
@@ -1543,7 +1610,7 @@ Notation evalCP := (@CPol.evalP C R CtoR cvmR 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
-Notation eqbP := (@NCPol.t_eqb CPol eqbCP).
+Notation eqbP := (@NCPol.eqbP CPol eqbCP).
 Notation Pc := (fun c => @NCPol.Pc CPol (@CPol.Pc C c)).
 Notation mkCXi := (fun i => @NCPol.Pc CPol (@CPol.mkXi C zeroC oneC i)).
 Notation mkNCXi := (@NCPol.mkXi CPol zeroCP oneCP).
@@ -1572,7 +1639,7 @@ Let evalME :=
 Lemma eval_norm_semimodule me : evalM 1 (norm_semimodule me) = evalME me.
 Proof.
 apply/eval_norm_semimodule => //.
-- exact/NCPol.t_eqb_correct/CPol.t_eqb_correct.
+- exact/NCPol.eqbPcorrect/CPol.eqbPcorrect.
 - exact/Mixed.evalDP.
 - exact/Mixed.evalMP.
 exact/Mixed.eval_norm_semiring.
@@ -1600,7 +1667,7 @@ Notation evalPE :=
 
 (* Commutative polynomials *)
 Notation CPol := (CPol.t C).
-Notation eqbCP := (@CPol.t_eqb C eqbC).
+Notation eqbCP := (@CPol.eqbP C eqbC).
 Notation zeroCP := (@CPol.zeroP C zeroC).
 Notation oneCP := (@CPol.oneP C oneC).
 Notation oppCP := (@CPol.oppP C oppC).
@@ -1610,7 +1677,7 @@ Notation evalCP := (@CPol.evalP C R CtoR cvmR 1).
 
 (* Non-commutative polynomials over commutative polynomials *)
 Notation Pol := (NCPol.t (CPol.t C)).
-Notation eqbP := (@NCPol.t_eqb CPol eqbCP).
+Notation eqbP := (@NCPol.eqbP CPol eqbCP).
 Notation Pc := (fun c => @NCPol.Pc CPol (@CPol.Pc C c)).
 Notation mkCXi := (fun i => @NCPol.Pc CPol (@CPol.mkXi C zeroC oneC i)).
 Notation mkNCXi := (@NCPol.mkXi CPol zeroCP oneCP).
@@ -1640,7 +1707,7 @@ Let evalME := @evalME PExpr U 0 +%R -%R (fun x => GRing.scale (evalPE x)) vmU.
 Lemma eval_norm_module me : evalM 1 (norm_module me) = evalME me.
 Proof.
 apply/eval_norm_module => //.
-- exact/NCPol.t_eqb_correct/CPol.t_eqb_correct.
+- exact/NCPol.eqbPcorrect/CPol.eqbPcorrect.
 - exact/Mixed.evalNP.
 - exact/Mixed.evalDP.
 - exact/Mixed.evalMP.
