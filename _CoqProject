@@ -3,10 +3,17 @@ src/monalg.v
 src/mpoly.v
 src/ssrcomplements.v
 src/xfinmap.v
-refinements/compoly.v
-refinements/genproof.v
+refinements/param.v
+refinements/monalg_ext.v
+refinements/syntax.v
+refinements/cring_base.v
+refinements/cring_refinements.v
+refinements/ncring_base.v
+refinements/ring_base.v
+refinements/module_base.v
 
 -R src mathcomp.multinomials
+-R refinements mathcomp.multinomials
 -arg -w -arg -ambiguous-paths
 -arg -w -arg -notation-overridden
 -arg -w -arg -redundant-canonical-projection
