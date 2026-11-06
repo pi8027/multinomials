@@ -54,6 +54,12 @@ Elpi derive.param2.register Pos.add Pos_add_R.
 
 Elpi derive.param2 N.
 
+Lemma N_R_refl n : N_R n n.
+Proof. by case: n; constructor; apply/positive_R_refl. Qed.
+
+Lemma N_R_eq n m : N_R n m -> n = m.
+Proof. by case=> // p q /positive_R_eq->. Qed.
+
 Elpi derive.param2 Z.
 Elpi derive.param2 Z.double.
 Elpi derive.param2 Z.pred_double.
