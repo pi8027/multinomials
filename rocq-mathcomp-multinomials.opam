@@ -25,6 +25,7 @@ depends: [
   "rocq-mathcomp-algebra" 
   "rocq-mathcomp-bigenough" 
   "rocq-mathcomp-finmap" 
+  "rocq-mathcomp-zify"
 ]
 conflicts: [ "coq-mathcomp-multinomials" {<= "2.4.0"} ]
 
