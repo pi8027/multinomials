@@ -11,6 +11,7 @@ refinements/cring_refinements.v
 refinements/ncring_base.v
 refinements/ring_base.v
 refinements/module_base.v
+refinements/trocq.v
 
 -R src mathcomp.multinomials
 -R refinements mathcomp.multinomials
