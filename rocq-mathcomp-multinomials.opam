@@ -26,7 +26,13 @@ depends: [
   "rocq-mathcomp-bigenough" 
   "rocq-mathcomp-finmap" 
   "rocq-mathcomp-zify"
+  "coq-trocq" 
 ]
+
+pin-depends: [
+  ["coq-trocq.dev" "git+https://github.com/Tvallejos/trocq.git#elpi-3.5"]
+] 
+
 conflicts: [ "coq-mathcomp-multinomials" {<= "2.4.0"} ]
 
 tags: [
