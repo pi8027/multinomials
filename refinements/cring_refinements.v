@@ -1,4 +1,4 @@
-From elpi.apps Require Import derive.std.
+From Trocq Require Import Param_bool Param_nat Param_trans Trocq Stdlib.
 From HB Require Import structures.
 From Stdlib Require Import BinPos BinNat BinInt.
 From mathcomp Require Import ssreflect ssrfun ssrbool eqtype ssrnat seq choice.
@@ -21,6 +21,8 @@ Local Arguments Pos.add : simpl never.
 (********************************************************)
 (* Refinements for multivariate commutative polynomials *)
 (********************************************************)
+(* p and q is for malg *)
+(* P and Q is for CPol *)
 Module CPol.
 Import CPol.
 
@@ -275,7 +277,7 @@ Let mulC_R : forall c1' c1, C_R c1' c1 -> forall c2' c2, C_R c2' c2 ->
 Proof. by move=> _ ? <- _ ? <-; apply/CtoC'_M. Qed.
 
 Lemma mapP_eqb P Q : eqbP eqbC' (mapP CtoC' P) (mapP CtoC' Q) = eqbP eqbC P Q.
-Proof. exact/bool_R_eq/eqbP_R/t_R_mapP/t_R_mapP/eqbC_R. Qed.
+Proof. apply/bool_R_eq/eqbP_R/t_R_mapP/t_R_mapP/eqbC_R. Qed.
 
 Lemma mapP_N P : mapP CtoC' (oppP oppC P) = oppP oppC' (mapP CtoC' P).
 Proof. exact/mapP_t_R/oppP_R/t_R_mapP. Qed.
@@ -524,7 +526,7 @@ apply/(@evalP_R R C (fun x y => CtoR y = x) _ _ eq)/t_R_mapP/positive_R_refl.
 by move=> ? _ <- ? _ /nat_R_eq<-.
 Qed.
 
-Let CPol_R_map p P : pre_CPol_R p (mapP CtoR P) = CPol_R p P.
+Lemma CPol_R_map p P : pre_CPol_R p (mapP CtoR P) = CPol_R p P.
 Proof.
 congr ((_ = _) * Datatypes.is_true _)%type; first exact/CPol_to_malg_map.
 exact/mapP_is_norm/CtoR_0/CtoR_eqb.

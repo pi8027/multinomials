@@ -1,4 +1,5 @@
-From elpi.apps Require Import derive.std.
+Require Import ssreflect ssrbool.
+From Trocq Require Import Param_bool Param_nat.
 From Stdlib Require Import BinPos BinNat BinInt.
 
 Set Implicit Arguments.
