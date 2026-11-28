@@ -509,6 +509,7 @@ Notation mulP := (@mulP C eqbC zeroC oneC addC mulC).
 Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
 Notation is_norm := (@is_norm C eqbC zeroC).
 
+(* The specification function *)
 Definition CPol_to_malg : t C -> {malg R[cmonom I]} :=
   evalP (malgC \o CtoR) (fun i => << ucm (vm i) >>)
     +%R *%R (@GRing.exp {malg R[cmonom I]}) 1.
@@ -548,22 +549,48 @@ Proof. by split; rewrite // /CPol_to_malg/= CtoR_0 rmorph0. Qed.
 Lemma one_R : CPol_R 1 oneP.
 Proof. by split; rewrite // /CPol_to_malg/= CtoR_1 rmorph1. Qed.
 
-Lemma add_R : forall p P, CPol_R p P -> forall q Q, CPol_R q Q ->
-  CPol_R (p + q) (addP P Q).
+Lemma CPol_to_malg_D : {morph CPol_to_malg : p q / addP p q >-> p + q}.
 Proof.
-move=> _ P [<- normP] _ Q [<- normQ]; apply/pair/normDP => //.
+move=> P Q.
 rewrite -!CPol_to_malg_map (mapP_D CtoR_eqb CtoR_0 CtoR_D); apply/evalDP.
 - by move=> ? ? /eqP.
 - exact: rmorph0.
 exact: rmorphD.
 Qed.
 
+Lemma add_R : forall p P, CPol_R p P -> forall q Q, CPol_R q Q ->
+  CPol_R (p + q) (addP P Q).
+Proof.
+move=> _ P [<- normP] _ Q [<- normQ]; apply/pair/normDP => //.
+exact/CPol_to_malg_D.
+Qed.
+
+Lemma CPol_to_malg_M : {morph CPol_to_malg : p q / mulP p q >-> p * q}.
+Proof.
+move=> P Q.
+rewrite -!CPol_to_malg_map (mapP_M CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M).
+apply/evalMP.
+- by move=> ? ? /eqP.
+- exact: rmorph0.
+- exact: rmorph1.
+- exact: rmorphD.
+- exact: rmorphM.
+move=> x i; rewrite /GRing.comm [LHS]fgmulgU [RHS]fgmulUg.
+by apply/eq_bigr => /= j _; rewrite mul1r mulr1 mulmC.
+Qed.
+
 Lemma mul_R : forall p P, CPol_R p P -> forall q Q, CPol_R q Q ->
   CPol_R (p * q) (mulP P Q).
 Proof.
 move=> _ P [<- normP] _ Q [<- normQ]; apply/pair/normMP => //.
-rewrite -!CPol_to_malg_map (mapP_M CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M).
-apply/evalMP.
+exact/CPol_to_malg_M.
+Qed.
+
+Lemma CPol_to_malg_Xn P n :
+  CPol_to_malg (powPN P n) = CPol_to_malg P ^+ N.to_nat n.
+Proof.
+rewrite -!CPol_to_malg_map (mapP_XN CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M).
+apply/evalXPN.
 - by move=> ? ? /eqP.
 - exact: rmorph0.
 - exact: rmorph1.
@@ -577,31 +604,39 @@ Lemma powN_R : forall p P, CPol_R p P -> forall n n', N.to_nat n' = n ->
   CPol_R (p ^+ n) (powPN P n').
 Proof.
 move=> _ P [<- normP] _ n <-; apply/pair/normXPN => //.
-rewrite -!CPol_to_malg_map (mapP_XN CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M).
-apply/evalXPN.
-- by move=> ? ? /eqP.
-- exact: rmorph0.
-- exact: rmorph1.
-- exact: rmorphD.
-- exact: rmorphM.
-move=> x i; rewrite /GRing.comm [LHS]fgmulgU [RHS]fgmulUg.
-by apply/eq_bigr => /= j _; rewrite mul1r mulr1 mulmC.
+exact/CPol_to_malg_Xn.
 Qed.
 
 End RefinementsSemiRing.
 
 Section RefinementsNzSemiRing.
-Context (I : choiceType) (vm : positive -> I).
-Context (C : Type) (eqbC : C -> C -> bool) (zeroC oneC : C).
-Context (R : nzSemiRingType) (CtoR : C -> R).
+Context (I : choiceType) (vm : positive -> I) (vm_inv : I -> positive).
+Context (C : Type) (eqbC : C -> C -> bool).
+Context (zeroC oneC : C) (addC mulC : C -> C -> C).
+Context (R : nzSemiRingType) (CtoR : C -> R) (RtoC : R -> C).
 
 Context (CtoR_eqb : forall c c', (CtoR c == CtoR c') = eqbC c c').
 Context (CtoR_0 : CtoR zeroC = 0).
 Context (CtoR_1 : CtoR oneC = 1).
+Context (CtoR_D : {morph CtoR : x y / addC x y >-> x + y}).
+Context (CtoR_M : {morph CtoR : x y / mulC x y >-> x * y}).
 
 Notation mkXi := (@mkXi C zeroC oneC).
+Notation zeroP := (@zeroP C zeroC).
+Notation oneP := (@oneP C oneC).
+Notation addP := (@addP C eqbC zeroC addC).
+Notation mulP := (@mulP C eqbC zeroC oneC addC mulC).
+Notation powPN := (@powPN C eqbC zeroC oneC addC mulC).
+Notation is_norm := (@is_norm C eqbC zeroC).
 
+Notation CPol_to_malg := (@CPol_to_malg I vm C R CtoR).
 Notation CPol_R := (@CPol_R I vm C eqbC zeroC R CtoR).
+
+Let zero_R := zero_R vm eqbC CtoR_0.
+Let one_R := one_R vm eqbC zeroC CtoR_1.
+Let CPol_to_malg_D := CPol_to_malg_D vm CtoR_eqb CtoR_0 CtoR_D.
+Let CPol_to_malg_M := CPol_to_malg_M vm CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M.
+Let CPol_to_malg_Xn := CPol_to_malg_Xn vm CtoR_eqb CtoR_0 CtoR_1 CtoR_D CtoR_M.
 
 (* Here we need to assume the coefficient semiring C/R to be non-trivial.     *)
 (* We might be able to remove this assumption by redefining [mkXi] (using     *)
@@ -612,6 +647,36 @@ split; last by apply/norm_mkXi; rewrite -CtoR_eqb CtoR_0 CtoR_1 oner_neq0.
 rewrite [LHS]eval_mkXi /= ?CtoR_0 ?CtoR_1 ?rmorph0//.
 by rewrite Pos.add_1_r Pos.pred_succ.
 Qed.
+
+(* The implementation function *)
+Let monom_to_CPol (m : cmonom I) : t C :=
+  foldr (fun i => mulP (powPN (mkXi (vm_inv i)) (N.of_nat (m i))))
+    oneP (finsupp m).
+
+Definition malg_to_CPol (p : {malg R[cmonom I]}) : t C :=
+  foldr (fun m => addP (mulP (Pc (RtoC p@_m)) (monom_to_CPol m)))
+    zeroP (msupp p).
+
+Lemma malg_to_CPolK :
+  cancel vm_inv vm -> cancel RtoC CtoR -> cancel malg_to_CPol CPol_to_malg.
+Proof.
+move=> vm_invK RtoCK p.
+have monom_to_CPolK m : CPol_to_malg (monom_to_CPol m) = << m >>.
+  rewrite [m in RHS]cmonomE /monom_to_CPol.
+  elim: (finsupp m : seq _) => [|i supp IHsupp].
+    by rewrite !big_nil/= one_R.
+  rewrite CPol_to_malg_M CPol_to_malg_Xn Nnat.Nat2N.id IHsupp big_cons.
+  by rewrite var_R vm_invK expUn expr1n [LHS]fgmulUU mul1r.
+rewrite [RHS]monalgE /malg_to_CPol.
+elim: (msupp p : seq _) => [|m supp IHsupp].
+  by rewrite /= zero_R big_nil.
+rewrite CPol_to_malg_D CPol_to_malg_M/= IHsupp big_cons; congr +%R.
+by rewrite monom_to_CPolK /CPol_to_malg/= RtoCK [LHS]fgmulUU mulr1 mul1m.
+Qed.
+
+Lemma CPol_to_malgK : {in is_norm, cancel CPol_to_malg malg_to_CPol}.
+Proof.
+Abort.
 
 End RefinementsNzSemiRing.
 

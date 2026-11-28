@@ -1577,6 +1577,13 @@ Proof. exact/mulcmE. Qed.
 Lemma cmX i m n : expmn m n i = (n * m i)%N.
 Proof. by elim: n => [|n IHn]; rewrite ?cm1// expmnS cmM IHn. Qed.
 
+Lemma cm_prod J (r : seq J) (F : J -> cmonom I) i :
+  (\prod_(j <- r) F j)%M i = (\sum_(j <- r) F j i)%N.
+Proof.
+elim: r => [|j r IHr]; first by rewrite !big_nil cm1.
+by rewrite 2!big_cons cmM IHr.
+Qed.
+
 Lemma mulcmK m : cancel (@mmul _ ^~ m) (@divcm _ ^~ m).
 Proof. by move=> m'; apply/eqP/cmP => i; rewrite divcmE mulcmE addnK. Qed.
 
@@ -1595,6 +1602,15 @@ Variant mdom_spec m (i : I) : bool -> nat -> Type :=
 
 Lemma mdomP m i : mdom_spec m i (i \in finsupp m) (m i).
 Proof. by case: finsuppP=> h; constructor. Qed.
+
+Lemma cmonomE m : m = (\prod_(i <- finsupp m) expmn (ucm i) (m i))%M.
+Proof.
+apply/eqP/cmP => i; rewrite cm_prod; case: mdomP => im; last first.
+  rewrite big1_fset// => j jm _; rewrite cmX cmU mulnC.
+  by case: eqP jm im => //= -> ->.
+rewrite (big_fsetD1 i)//= cmX cmUU muln1 big1_fset ?addn0//=.
+by move=> j /[!inE] /andP[ji jm] _; rewrite cmX cmU (negbTE ji) muln0.
+Qed.
 
 Lemma mdom1 : finsupp (1 : cmonom I)%M = fset0 :> {fset I}.
 Proof. by apply/fsetP=> i; rewrite in_fset0 -cmE_neq0 cm1 eqxx. Qed.
